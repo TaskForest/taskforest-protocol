@@ -1,5 +1,10 @@
 use std::collections::HashMap;
 
+pub mod error;
+pub mod instruction;
+pub mod processor;
+pub mod state;
+
 pub type JobId = u64;
 pub type ActorId = String;
 
@@ -172,7 +177,10 @@ impl TaskForestProtocol {
         if job.settlement.is_some() {
             return Err(ProtocolError::AlreadySettled);
         }
-        if params.verdict != Verdict::NeedsJudge && job.status != JobStatus::Submitted {
+        if params.verdict != Verdict::NeedsJudge
+            && job.status != JobStatus::Submitted
+            && job.status != JobStatus::Disputed
+        {
             return Err(ProtocolError::WrongStatus);
         }
         if params.verdict != Verdict::NeedsJudge && job.proof.is_none() {
@@ -271,6 +279,8 @@ pub struct SettleJobParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::instruction::TaskForestInstruction;
+    use crate::processor::{process_instruction, ProcessorOutput};
 
     fn create_default_job(protocol: &mut TaskForestProtocol, job_id: u64) {
         protocol
@@ -399,5 +409,74 @@ mod tests {
         });
 
         assert_eq!(result, Err(ProtocolError::WrongStatus));
+    }
+
+    #[test]
+    fn disputed_job_can_be_settled_by_verdict() {
+        let mut protocol = TaskForestProtocol::new();
+        create_default_job(&mut protocol, 5);
+
+        protocol
+            .claim_job(ClaimJobParams {
+                job_id: 5,
+                claimer: "worker-e".to_string(),
+                stake_usdc: 150,
+                now_epoch_secs: 1_000,
+            })
+            .expect("claim should succeed");
+
+        protocol
+            .submit_proof(SubmitProofParams {
+                job_id: 5,
+                proof_hash: "proof-hash-5".to_string(),
+                now_epoch_secs: 1_200,
+            })
+            .expect("proof submit should succeed");
+
+        protocol.open_dispute(5).expect("dispute should open");
+
+        let settlement = protocol
+            .settle_job(SettleJobParams {
+                job_id: 5,
+                verdict: Verdict::Fail,
+                reason_code: "DISPUTE_POSTER_UPHELD".to_string(),
+                now_epoch_secs: 1_300,
+            })
+            .expect("disputed settlement should succeed");
+
+        assert_eq!(settlement.poster_refund_usdc, 1_000);
+        assert_eq!(settlement.stake_slashed_usdc, 150);
+        let job = protocol.get_job(5).expect("job should exist");
+        assert_eq!(job.status, JobStatus::Failed);
+    }
+
+    #[test]
+    fn instruction_unpack_and_process_flow() {
+        let mut protocol = TaskForestProtocol::new();
+
+        let create = TaskForestInstruction::unpack(b"create_job|9|poster-z|1000|2000|proof-spec-9")
+            .expect("create instruction should unpack");
+        let out = process_instruction(&mut protocol, create).expect("create should process");
+        assert_eq!(out, ProcessorOutput::None);
+
+        let claim = TaskForestInstruction::unpack(b"claim_job|9|worker-z|111|1200")
+            .expect("claim instruction should unpack");
+        process_instruction(&mut protocol, claim).expect("claim should process");
+
+        let submit = TaskForestInstruction::unpack(b"submit_proof|9|proof-9|1300")
+            .expect("submit instruction should unpack");
+        process_instruction(&mut protocol, submit).expect("submit should process");
+
+        let settle = TaskForestInstruction::unpack(b"settle_job|9|pass|CHECKS_PASS_ALL|1400")
+            .expect("settle instruction should unpack");
+        let result = process_instruction(&mut protocol, settle).expect("settle should process");
+
+        match result {
+            ProcessorOutput::Settled(s) => {
+                assert_eq!(s.worker_payout_usdc, 1000);
+                assert_eq!(s.stake_returned_usdc, 111);
+            }
+            ProcessorOutput::None => panic!("expected settlement output"),
+        }
     }
 }
