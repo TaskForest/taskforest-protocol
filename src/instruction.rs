@@ -1,5 +1,6 @@
 use crate::{
-    ActorId, ClaimJobParams, CreateJobParams, JobId, SettleJobParams, SubmitProofParams, Verdict,
+    ActorId, CancelJobParams, ClaimJobParams, CreateJobParams, ExpireClaimParams, JobId,
+    SettleJobParams, SubmitProofParams, Verdict,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9,6 +10,8 @@ pub enum TaskForestInstruction {
     SubmitProof(SubmitProofParams),
     SettleJob(SettleJobParams),
     OpenDispute(JobId),
+    CancelJob(CancelJobParams),
+    ExpireClaim(ExpireClaimParams),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,13 +60,14 @@ impl TaskForestInstruction {
                 }))
             }
             "submit_proof" => {
-                if parts.len() != 4 {
+                if parts.len() != 5 {
                     return Err(InstructionDecodeError::InvalidFormat);
                 }
                 Ok(Self::SubmitProof(SubmitProofParams {
                     job_id: parse_u64(parts[1])?,
-                    proof_hash: parts[2].to_string(),
-                    now_epoch_secs: parse_u64(parts[3])?,
+                    submitter: parse_actor(parts[2]),
+                    proof_hash: parts[3].to_string(),
+                    now_epoch_secs: parse_u64(parts[4])?,
                 }))
             }
             "settle_job" => {
@@ -82,6 +86,24 @@ impl TaskForestInstruction {
                     return Err(InstructionDecodeError::InvalidFormat);
                 }
                 Ok(Self::OpenDispute(parse_u64(parts[1])?))
+            }
+            "cancel_job" => {
+                if parts.len() != 3 {
+                    return Err(InstructionDecodeError::InvalidFormat);
+                }
+                Ok(Self::CancelJob(CancelJobParams {
+                    job_id: parse_u64(parts[1])?,
+                    poster: parse_actor(parts[2]),
+                }))
+            }
+            "expire_claim" => {
+                if parts.len() != 3 {
+                    return Err(InstructionDecodeError::InvalidFormat);
+                }
+                Ok(Self::ExpireClaim(ExpireClaimParams {
+                    job_id: parse_u64(parts[1])?,
+                    now_epoch_secs: parse_u64(parts[2])?,
+                }))
             }
             _ => Err(InstructionDecodeError::InvalidDiscriminator),
         }
@@ -104,5 +126,39 @@ fn parse_verdict(value: &str) -> Result<Verdict, InstructionDecodeError> {
         "fail" => Ok(Verdict::Fail),
         "needs_judge" => Ok(Verdict::NeedsJudge),
         _ => Err(InstructionDecodeError::InvalidVerdict),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unpacks_cancel_and_expire_claim() {
+        let cancel = TaskForestInstruction::unpack(b"cancel_job|42|poster-x")
+            .expect("cancel_job should unpack");
+        match cancel {
+            TaskForestInstruction::CancelJob(params) => {
+                assert_eq!(params.job_id, 42);
+                assert_eq!(params.poster, "poster-x");
+            }
+            _ => panic!("expected cancel_job instruction"),
+        }
+
+        let expire = TaskForestInstruction::unpack(b"expire_claim|42|12345")
+            .expect("expire_claim should unpack");
+        match expire {
+            TaskForestInstruction::ExpireClaim(params) => {
+                assert_eq!(params.job_id, 42);
+                assert_eq!(params.now_epoch_secs, 12345);
+            }
+            _ => panic!("expected expire_claim instruction"),
+        }
+    }
+
+    #[test]
+    fn reject_invalid_submit_proof_shape() {
+        let result = TaskForestInstruction::unpack(b"submit_proof|1|proof-hash-only|2000");
+        assert_eq!(result, Err(InstructionDecodeError::InvalidFormat));
     }
 }

@@ -32,5 +32,13 @@ pub fn process_instruction(
             protocol.open_dispute(job_id)?;
             Ok(ProcessorOutput::None)
         }
+        TaskForestInstruction::CancelJob(params) => {
+            protocol.cancel_job(params)?;
+            Ok(ProcessorOutput::None)
+        }
+        TaskForestInstruction::ExpireClaim(params) => {
+            protocol.expire_claim(params)?;
+            Ok(ProcessorOutput::None)
+        }
     }
 }

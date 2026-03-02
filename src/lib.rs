@@ -83,6 +83,8 @@ pub enum ProtocolError {
     InvalidAmount,
     MissingProof,
     WrongStatus,
+    Unauthorized,
+    InvalidClaimant,
 }
 
 #[derive(Debug, Default)]
@@ -155,6 +157,9 @@ impl TaskForestProtocol {
         }
         if params.now_epoch_secs > job.deadline_epoch_secs {
             return Err(ProtocolError::DeadlinePassed);
+        }
+        if job.claim.as_ref().map(|c| c.claimer.as_str()) != Some(params.submitter.as_str()) {
+            return Err(ProtocolError::InvalidClaimant);
         }
         if job.proof.is_some() {
             return Err(ProtocolError::AlreadySubmitted);
@@ -239,8 +244,58 @@ impl TaskForestProtocol {
         }
     }
 
+    pub fn cancel_job(&mut self, params: CancelJobParams) -> Result<(), ProtocolError> {
+        let job = self
+            .jobs
+            .get_mut(&params.job_id)
+            .ok_or(ProtocolError::JobNotFound)?;
+
+        if job.poster != params.poster {
+            return Err(ProtocolError::Unauthorized);
+        }
+        if job.status != JobStatus::Open {
+            return Err(ProtocolError::InvalidTransition);
+        }
+
+        job.status = JobStatus::Cancelled;
+        Ok(())
+    }
+
+    pub fn expire_claim(&mut self, params: ExpireClaimParams) -> Result<(), ProtocolError> {
+        let job = self
+            .jobs
+            .get_mut(&params.job_id)
+            .ok_or(ProtocolError::JobNotFound)?;
+
+        if job.status != JobStatus::Claimed {
+            return Err(ProtocolError::WrongStatus);
+        }
+        if params.now_epoch_secs <= job.deadline_epoch_secs {
+            return Err(ProtocolError::InvalidTransition);
+        }
+
+        let stake = job.claim.as_ref().map(|c| c.stake_usdc).unwrap_or(0);
+
+        job.status = JobStatus::Failed;
+        job.settlement = Some(Settlement {
+            verdict: Verdict::Fail,
+            settled_at_epoch_secs: params.now_epoch_secs,
+            reason_code: "DEADLINE_EXPIRED".to_string(),
+            worker_payout_usdc: 0,
+            poster_refund_usdc: job.reward_usdc,
+            stake_returned_usdc: 0,
+            stake_slashed_usdc: stake,
+        });
+
+        Ok(())
+    }
+
     pub fn get_job(&self, job_id: JobId) -> Option<&Job> {
         self.jobs.get(&job_id)
+    }
+
+    pub fn job_count(&self) -> usize {
+        self.jobs.len()
     }
 }
 
@@ -264,6 +319,7 @@ pub struct ClaimJobParams {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubmitProofParams {
     pub job_id: JobId,
+    pub submitter: ActorId,
     pub proof_hash: String,
     pub now_epoch_secs: u64,
 }
@@ -273,6 +329,18 @@ pub struct SettleJobParams {
     pub job_id: JobId,
     pub verdict: Verdict,
     pub reason_code: String,
+    pub now_epoch_secs: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CancelJobParams {
+    pub job_id: JobId,
+    pub poster: ActorId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpireClaimParams {
+    pub job_id: JobId,
     pub now_epoch_secs: u64,
 }
 
@@ -311,6 +379,7 @@ mod tests {
         protocol
             .submit_proof(SubmitProofParams {
                 job_id: 1,
+                submitter: "worker-a".to_string(),
                 proof_hash: "proof-hash-123".to_string(),
                 now_epoch_secs: 1_200,
             })
@@ -350,6 +419,7 @@ mod tests {
         protocol
             .submit_proof(SubmitProofParams {
                 job_id: 2,
+                submitter: "worker-b".to_string(),
                 proof_hash: "bad-proof".to_string(),
                 now_epoch_secs: 1_500,
             })
@@ -428,6 +498,7 @@ mod tests {
         protocol
             .submit_proof(SubmitProofParams {
                 job_id: 5,
+                submitter: "worker-e".to_string(),
                 proof_hash: "proof-hash-5".to_string(),
                 now_epoch_secs: 1_200,
             })
@@ -463,7 +534,7 @@ mod tests {
             .expect("claim instruction should unpack");
         process_instruction(&mut protocol, claim).expect("claim should process");
 
-        let submit = TaskForestInstruction::unpack(b"submit_proof|9|proof-9|1300")
+        let submit = TaskForestInstruction::unpack(b"submit_proof|9|worker-z|proof-9|1300")
             .expect("submit instruction should unpack");
         process_instruction(&mut protocol, submit).expect("submit should process");
 
@@ -478,5 +549,74 @@ mod tests {
             }
             ProcessorOutput::None => panic!("expected settlement output"),
         }
+    }
+
+    #[test]
+    fn only_claimer_can_submit_proof() {
+        let mut protocol = TaskForestProtocol::new();
+        create_default_job(&mut protocol, 6);
+
+        protocol
+            .claim_job(ClaimJobParams {
+                job_id: 6,
+                claimer: "worker-f".to_string(),
+                stake_usdc: 99,
+                now_epoch_secs: 1_000,
+            })
+            .expect("claim should succeed");
+
+        let result = protocol.submit_proof(SubmitProofParams {
+            job_id: 6,
+            submitter: "imposter".to_string(),
+            proof_hash: "proof-hash-6".to_string(),
+            now_epoch_secs: 1_100,
+        });
+
+        assert_eq!(result, Err(ProtocolError::InvalidClaimant));
+    }
+
+    #[test]
+    fn poster_can_cancel_open_job() {
+        let mut protocol = TaskForestProtocol::new();
+        create_default_job(&mut protocol, 7);
+
+        protocol
+            .cancel_job(CancelJobParams {
+                job_id: 7,
+                poster: "poster-1".to_string(),
+            })
+            .expect("cancel should succeed");
+
+        let job = protocol.get_job(7).expect("job should exist");
+        assert_eq!(job.status, JobStatus::Cancelled);
+    }
+
+    #[test]
+    fn expire_claim_creates_fail_settlement() {
+        let mut protocol = TaskForestProtocol::new();
+        create_default_job(&mut protocol, 8);
+
+        protocol
+            .claim_job(ClaimJobParams {
+                job_id: 8,
+                claimer: "worker-g".to_string(),
+                stake_usdc: 250,
+                now_epoch_secs: 1_500,
+            })
+            .expect("claim should succeed");
+
+        protocol
+            .expire_claim(ExpireClaimParams {
+                job_id: 8,
+                now_epoch_secs: 2_100,
+            })
+            .expect("expiration should succeed");
+
+        let job = protocol.get_job(8).expect("job should exist");
+        assert_eq!(job.status, JobStatus::Failed);
+        let settlement = job.settlement.clone().expect("settlement should exist");
+        assert_eq!(settlement.reason_code, "DEADLINE_EXPIRED");
+        assert_eq!(settlement.poster_refund_usdc, 1_000);
+        assert_eq!(settlement.stake_slashed_usdc, 250);
     }
 }
