@@ -1,158 +1,74 @@
 # TaskForest Protocol
 
-Initial protocol scaffold for TaskForest: a proof-first task network where humans and AI agents assign work, submit verifiable outcomes, and settle rewards on Solana.
+Real-time bounty board on Solana — workers bid on bounties via MagicBlock Ephemeral Rollups (sub-50ms, gasless), settlement records archived on-chain.
 
-## What is implemented now
+**Program ID:** [`Fgiye795epSDkytp6a334Y2AwjqdGDecWV24yc2neZ4s`](https://explorer.solana.com/address/Fgiye795epSDkytp6a334Y2AwjqdGDecWV24yc2neZ4s?cluster=devnet)
 
-- Core protocol state machine in pure Rust domain logic.
-- Instruction layer with deterministic decoding and dispatch.
-- Processor layer to route instructions into state transitions.
-- Unit and integration tests covering happy paths and failure paths.
+## Architecture
 
-## Construction details
-
-### Module layout
-
-- `src/lib.rs`
-  - canonical domain state (`Job`, `Claim`, `Settlement`)
-  - state transitions and guards (`create_job`, `claim_job`, `submit_proof`, `settle_job`, `open_dispute`, `cancel_job`, `expire_claim`)
-  - protocol errors and parameter structs
-- `src/instruction.rs`
-  - `TaskForestInstruction` enum
-  - `unpack()` decoder for transport payloads
-- `src/processor.rs`
-  - `process_instruction()` dispatcher
-  - normalized output for settlement
-- `src/state.rs`
-  - snapshot model for external read models/serialization boundaries
-- `src/error.rs`
-  - shared `ProgramResult` alias for future on-chain wiring
-
-### State model and invariants
-
-- Job lifecycle:
-  - `Open -> Claimed -> Submitted -> Done|Failed`
-  - optional `Submitted|Failed -> Disputed -> Done|Failed`
-  - cancellation path: `Open -> Cancelled`
-- Safety invariants:
-  - reward and stake must be non-zero where required
-  - only open jobs are claimable
-  - proof submitter must match recorded claimer
-  - settlement requires valid status + proof where applicable
-  - timeout expiration can force fail settlement with reason `DEADLINE_EXPIRED`
-
-## Extension-ready design (Arcium + MagicBlock)
-
-This scaffold is intentionally not fixed to a single verification/execution path.
-
-- `VerificationBackend` enum supports:
-  - `Native`
-  - `Arcium`
-  - `MagicBlock`
-  - `Hybrid`
-  - `Custom(String)` for forward-compatible providers
-- Settlement records backend metadata:
-  - `verification_backend`
-  - `verification_ref` (attestation/proof/receipt URI)
-- Proof submissions accept extensible evidence vectors:
-  - `evidence_refs: Vec<String>`
-- Protocol capabilities are runtime-configurable:
-  - `allow_confidential_verification`
-  - `allow_realtime_execution`
-  - `extension_flags: HashMap<String, String>`
-
-This means Arcium confidential attestations and MagicBlock real-time session receipts can be added without changing the core job lifecycle model.
-
-## Anti-exploit policy controls (implemented)
-
-The protocol includes built-in policy knobs to mitigate common marketplace attacks:
-
-- Weak deterministic-check abuse:
-  - minimum `evidence_refs` required on proof submission
-  - pass settlements can require `verification_ref`
-- Task hoarding:
-  - minimum stake as a percentage of reward (`min_stake_bps`)
-  - maximum concurrent active claims per claimer
-  - maximum active reward exposure per claimer
-- Exit-scam / credit abuse:
-  - exposure caps enforced before claim acceptance
-  - timeout path creates explicit fail settlement with slash semantics
-- Verifier centralization risk:
-  - configurable verifier-approval thresholds
-  - higher approval threshold for high-value settlements
-- Challenge window protection:
-  - minimum delay before pass settlement can finalize
-
-These controls live in `ProtocolPolicy` and can be tuned through `policy_mut()`.
-
-### Instruction payload format (current scaffold)
-
-Current decoder uses simple pipe-delimited payloads for rapid iteration:
-
-```text
-create_job|<job_id>|<poster>|<reward>|<deadline>|<proof_spec_hash>
-claim_job|<job_id>|<claimer>|<stake>|<now>
-submit_proof|<job_id>|<submitter>|<proof_hash>|<now>
-settle_job|<job_id>|<pass|fail|needs_judge>|<reason_code>|<now>
-open_dispute|<job_id>
-cancel_job|<job_id>|<poster>
-expire_claim|<job_id>|<now>
-
-# optional backend metadata on settle
-settle_job|<job_id>|<pass|fail|needs_judge>|<reason_code>|<now>|<backend>|<verification_ref>
-
-# optional evidence refs on submit_proof
-submit_proof|<job_id>|<submitter>|<proof_hash>|<now>|<evidence_ref_1>|<evidence_ref_2>|...
+```
+L1 (Solana Devnet / Helius)              ER (MagicBlock)
+┌──────────────────────┐                ┌──────────────────┐
+│ initialize_job       │                │                  │
+│ delegate_job ────────│──→ delegate ──→│ place_bid (×N)   │
+│ submit_proof         │←── commit ←────│ close_bidding    │
+│ settle_job           │                │ (gasless, <50ms) │
+│ archive_settlement   │                └──────────────────┘
+│ expire_claim         │
+└──────────────────────┘
 ```
 
-This will be replaced by compact binary instruction encoding in the on-chain Pinocchio layer.
+### Job Lifecycle
 
-## Why this kickoff
+```
+Open → Delegate → Bidding (ER) → Claimed → Submitted → Done/Failed → Archived
+```
 
-This repo starts with a deterministic state machine and payout semantics before binding to Solana accounts/instructions. The next step is mapping these flows to Pinocchio program accounts and instruction handlers.
+## Instructions (8 total)
 
-## TDD approach used
+| Instruction | Layer | Purpose |
+|---|---|---|
+| `initialize_job` | L1 | Create job PDA with reward, deadline, proof spec |
+| `delegate_job` | L1 | Delegate job PDA to Ephemeral Rollup |
+| `place_bid` | ER | Worker bids with stake (real-time, gasless) |
+| `close_bidding` | ER→L1 | Select winner, commit+undelegate to L1 |
+| `submit_proof` | L1 | Claimed worker submits proof hash |
+| `settle_job` | L1 | Verifier passes/fails the job |
+| `archive_settlement` | L1 | Archive settlement to PDA (future: ZK compressed) |
+| `expire_claim` | L1 | Slash worker stake if deadline passed |
 
-- Add failing tests first for each new transition/guard.
-- Implement the minimum transition logic to satisfy tests.
-- Refactor only after all tests are green.
-- Keep domain logic deterministic and side-effect free before adding Solana account IO.
+## Quick Start
 
-## Run tests
+### Prerequisites
+
+- [Anchor CLI](https://www.anchor-lang.com/docs/installation) 0.32.1
+- [Solana CLI](https://docs.solana.com/cli/install-solana-cli-tools) 2.x
+- Node.js 20+
+
+### Build & Test (localnet)
 
 ```bash
-cargo test
+anchor build
+anchor test          # 7 tests — guards + archive
 ```
 
-Run integration tests only:
+### Deploy to Devnet
 
 ```bash
-cargo test --test protocol_integration
+# Set up environment
+cp .env.example .env  # add your Helius API key
+anchor deploy --provider.cluster <HELIUS_RPC> --provider.wallet keys/<wallet>.json
 ```
 
-Compile checks:
+### Run Devnet ER Integration Test
 
 ```bash
-cargo check
+ANCHOR_PROVIDER_URL="<HELIUS_RPC>" \
+ANCHOR_WALLET=keys/<wallet>.json \
+npx ts-mocha -p ./tsconfig.json -t 120000 tests/er-devnet.ts
 ```
 
-## Devnet client app
-
-A simple web client lives in `client/` to exercise devnet flows:
-
-- burner keypair + airdrop
-- memo/self-transfer smoke tests
-- `create_job` instruction submission
-- optional identity adapter linkage (`native`, `8004`, `custom`)
-
-Identity adapter interface lives in:
-
-- `client/src/identity/types.ts`
-- `client/src/identity/adapters.ts`
-
-This keeps external registries optional and prevents protocol lock-in while still enabling 8004 interoperability.
-
-Run client:
+### Run Client
 
 ```bash
 cd client
@@ -160,30 +76,28 @@ npm install
 npm run dev
 ```
 
-## Feature-gated Pinocchio entrypoint scaffold
+## Project Structure
 
-This repo now includes a `bpf-entrypoint` feature that compiles a minimal Pinocchio program entrypoint in:
-
-- `src/bpf_entrypoint.rs`
-
-What it does now:
-- Declares a program id.
-- Exposes `process_instruction` via `pinocchio::entrypoint!`.
-- Validates/decodes TaskForest instruction payloads.
-
-Build check with the feature enabled:
-
-```bash
-cargo check --features bpf-entrypoint
+```
+programs/taskforest/src/lib.rs    # Anchor program (8 instructions)
+tests/taskforest.ts               # Localnet unit tests (7 passing)
+tests/er-devnet.ts                # Devnet ER integration test (7 steps)
+client/src/App.tsx                # Web client
+scripts/deploy-devnet.sh          # Deploy helper
+keys/                             # Wallet keypairs (gitignored)
+.env                              # Helius API key (gitignored)
 ```
 
-This keeps the domain state machine and tests independent while we progressively map account parsing and state persistence for real on-chain execution.
+## Key Technical Notes
 
-## Next steps
+- **No status mutation in `delegate_job`** — delegation CPI transfers PDA ownership; any Anchor auto-serialization after would fail with `ExternalAccountDataModified`
+- **Dynamic ER routing** — Magic Router (`devnet-router.magicblock.app`) assigns the ER region; don't hardcode endpoints
+- **`@solana/web3.js` workaround** — `sendAndConfirmTransaction` used directly instead of Anchor's broken `sendAndConfirm` in web3.js 1.95+
+- **Settlement archive** — uses regular PDA (Light Protocol `light-sdk` needs `rustc 1.85+`, Anchor bundles `1.79.0`)
 
-1. Add Pinocchio account layouts (`Job`, `Claim`, config`) and account parsers.
-2. Introduce binary instruction encoding/decoding for on-chain execution.
-3. Integrate SPL USDC escrow transfers and authority checks.
-4. Add verifier signature checks for settlement payloads.
-5. Emit program events for indexers and statement generation.
-6. Add devnet end-to-end tests for create/claim/proof/settle/dispute flows.
+## Stack
+
+- **On-chain:** Anchor 0.32.1, `ephemeral-rollups-sdk 0.6.5`
+- **Client:** React + Vite, `@coral-xyz/anchor`
+- **RPC:** Helius (devnet)
+- **ER:** MagicBlock Ephemeral Rollups

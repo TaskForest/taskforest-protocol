@@ -1,1 +1,23 @@
+# Rust / Anchor
 /target
+.anchor/
+
+# Dependencies
+node_modules/
+
+# Environment & secrets
+.env
+keys/
+
+# Build artifacts
+client/dist/
+
+# OS
+.DS_Store
+*.swp
+*.swo
+
+# IDEs
+.idea/
+.vscode/
+*.iml
