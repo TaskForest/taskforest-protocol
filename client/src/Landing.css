@@ -388,15 +388,17 @@
     display: flex;
     flex-direction: column;
     gap: 0.6rem;
-    align-items: center;
+    margin: 0 auto;
+    width: fit-content;
 }
 
 .flow-step {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 0.7rem;
     font-size: 0.85rem;
     color: #c8dcd2;
+    text-align: left;
 }
 
 .flow-step-num {
