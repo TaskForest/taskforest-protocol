@@ -134,6 +134,7 @@ This demonstrates the real use case — one wallet posts a job, another bids on 
 
 - **On-Chain**: Anchor (Rust) on Solana devnet
 - **Ephemeral Rollups**: MagicBlock SDK for delegation + gasless bidding
+- **ZK Compression**: Light Protocol for cost-efficient on-chain state (roadmap)
 - **Client**: React + TypeScript + Vite
 - **Wallet**: Phantom / Solflare via `@solana/wallet-adapter`
 - **Metadata**: Cloudflare Workers + R2 (content-addressed storage)

@@ -768,10 +768,10 @@ function App() {
       {/* Header */}
       <header className="header">
         <div className="logo-row">
-          <div className="logo">
+          <a href="/" className="logo" style={{textDecoration:'none', color:'inherit'}}>
             <span className="logo-icon">🌲</span>
             <span className="logo-text">TaskForest</span>
-          </div>
+          </a>
           <div className="header-right">
             <div className="network-badge">
               <span className="dot" /> devnet
