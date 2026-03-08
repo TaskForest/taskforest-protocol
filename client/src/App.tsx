@@ -223,7 +223,6 @@ function App() {
 
   useEffect(() => { refreshBalance() }, [refreshBalance])
 
-  // sendConn: optionally send the signed tx to a different connection (e.g. ER)
   // Signing always uses L1 blockhash so Phantom recognizes it as devnet
   async function sendTx(sendConn: Connection, tx: Transaction): Promise<string> {
     if (!publicKey || !signTransaction) throw new Error('Wallet not connected')
@@ -233,9 +232,16 @@ function App() {
     const signed = await signTransaction(tx)
     const raw = signed.serialize()
     const sig = await sendConn.sendRawTransaction(raw, { skipPreflight: true })
-    // For ER txs, don't await L1 confirmation — ER has its own consensus
+
+    // Confirm with timeout
     if (sendConn === connection) {
-      await connection.confirmTransaction(sig, 'confirmed')
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Confirmation timeout (30s)')), 30000)
+      )
+      await Promise.race([
+        connection.confirmTransaction(sig, 'confirmed'),
+        timeout,
+      ])
     } else {
       // Poll ER for confirmation
       for (let i = 0; i < 30; i++) {
@@ -245,6 +251,24 @@ function App() {
       }
     }
     return sig
+  }
+
+  // Check if account is already delegated to ER
+  async function checkDelegation(): Promise<string | null> {
+    if (!jobPDA) return null
+    try {
+      const resp = await fetch(MAGIC_ROUTER, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getDelegationStatus', params: [jobPDA.toBase58()] }),
+      })
+      const result: any = await resp.json()
+      if (result.result?.isDelegated && result.result?.fqdn) {
+        const ep = result.result.fqdn.startsWith('http') ? result.result.fqdn : `https://${result.result.fqdn}`
+        return ep
+      }
+    } catch { /* not delegated */ }
+    return null
   }
 
   // ---------- Lifecycle Steps ----------
@@ -304,18 +328,26 @@ function App() {
     }
   }
 
-  async function stepDelegate(): Promise<boolean> {
+  async function stepDelegate(): Promise<string | false> {
     if (!program || !publicKey || !jobPDA) return false
     setActiveStep('delegate')
     addEvent('Delegating to Ephemeral Rollup...', 'l1')
     const start = Date.now()
     try {
+      // Check if already delegated
+      const existingER = await checkDelegation()
+      if (existingER) {
+        addEvent(`Already delegated → ${new URL(existingER).hostname}`, 'info', { ms: Date.now() - start })
+        setCompletedSteps(prev => new Set([...prev, 'delegate']))
+        return existingER
+      }
+
       const job = await program.account.job.fetch(jobPDA)
       const status = job.status as number
       if (status !== 0) {
         addEvent(`Job status=${status}, skipping delegation`, 'info', { ms: Date.now() - start })
         setCompletedSteps(prev => new Set([...prev, 'delegate']))
-        return true
+        return 'skip'
       }
 
       const tx = await program.methods
@@ -326,7 +358,7 @@ function App() {
       const sig = await sendTx(connection, tx)
       addEvent(`Delegated → MagicBlock ER`, 'success', { txHash: sig, ms: Date.now() - start })
       setCompletedSteps(prev => new Set([...prev, 'delegate']))
-      return true
+      return 'delegated'
     } catch (e) {
       addEvent(`Delegation failed: ${(e as Error).message.slice(0, 80)}`, 'error')
       return false
@@ -491,7 +523,8 @@ function App() {
     if (!await stepInit()) { setRunning(false); return }
     await new Promise(r => setTimeout(r, 800))
 
-    if (!await stepDelegate()) { setRunning(false); return }
+    const delegateResult = await stepDelegate()
+    if (!delegateResult) { setRunning(false); return }
     await new Promise(r => setTimeout(r, 1000))
 
     const job = await program.account.job.fetch(jobPDA)
@@ -499,7 +532,14 @@ function App() {
     let erEndpoint: string | null = null
 
     if (status < 2) {
-      erEndpoint = await discoverER()
+      // If stepDelegate returned an ER URL directly (already delegated), use it
+      if (delegateResult.startsWith('http')) {
+        erEndpoint = delegateResult
+        addEvent(`Using existing ER: ${new URL(erEndpoint).hostname}`, 'er')
+      } else {
+        // Fresh delegation — discover ER
+        erEndpoint = await discoverER()
+      }
       if (!erEndpoint) { addEvent('Cannot proceed without ER endpoint', 'error'); setRunning(false); return }
       if (!await stepBid(erEndpoint)) { setRunning(false); return }
       await new Promise(r => setTimeout(r, 800))
