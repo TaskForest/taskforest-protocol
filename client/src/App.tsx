@@ -6,7 +6,6 @@ import {
   Keypair,
   PublicKey,
   SystemProgram,
-  sendAndConfirmTransaction,
   LAMPORTS_PER_SOL,
   Transaction,
 } from '@solana/web3.js'
@@ -477,11 +476,7 @@ function App() {
         .transaction()
 
       const sig = await sendErTx(erConn, tx)
-      addEvent(`Bidding closed, committing to L1...`, 'success', { txHash: sig, ms: Date.now() - start })
-
-      addEvent('Waiting for L1 settlement (~10s)...', 'info')
-      await new Promise(r => setTimeout(r, 12000))
-      addEvent('Job committed back to L1', 'l1')
+      addEvent(`Bidding closed, undelegating to L1...`, 'success', { txHash: sig, ms: Date.now() - start })
       setCompletedSteps(prev => new Set([...prev, 'closing']))
       return true
     } catch (e) {
@@ -589,7 +584,29 @@ function App() {
       if (!await stepBid(erEndpoint)) { setRunning(false); return }
       await new Promise(r => setTimeout(r, 800))
       if (!await stepClose(erEndpoint)) { setRunning(false); return }
-      await new Promise(r => setTimeout(r, 800))
+
+      // Poll for L1 settlement (status >= 2 means CLAIMED)
+      addEvent('Waiting for L1 settlement...', 'info')
+      let settled = false
+      for (let i = 0; i < 24; i++) {
+        await new Promise(r => setTimeout(r, 5000))
+        try {
+          const check = await program.account.job.fetch(jobPDA)
+          const s = check.status as number
+          if (s >= 2) {
+            addEvent(`Job committed to L1 (status=${s}) ✔`, 'l1', { ms: (i + 1) * 5000 })
+            settled = true
+            break
+          }
+          addEvent(`Polling L1... status=${s} (${(i + 1) * 5}s)`, 'info')
+        } catch {
+          addEvent(`Polling L1... (${(i + 1) * 5}s)`, 'info')
+        }
+      }
+      if (!settled) {
+        addEvent('L1 settlement timeout (120s). Try running again.', 'error')
+        setRunning(false); return
+      }
     } else {
       addEvent(`Job already at status=${status}, skipping ER steps`, 'info')
       setCompletedSteps(prev => new Set([...prev, 'bidding', 'closing']))
@@ -599,10 +616,7 @@ function App() {
     if ((job2.status as number) === 2) {
       if (!await stepProve()) { setRunning(false); return }
       await new Promise(r => setTimeout(r, 800))
-    } else if ((job2.status as number) < 3) {
-      addEvent('Job not in CLAIMED state for proof', 'error')
-      setRunning(false); return
-    } else {
+    } else if ((job2.status as number) >= 3) {
       addEvent('Proof already submitted', 'info')
       setCompletedSteps(prev => new Set([...prev, 'proving']))
     }
