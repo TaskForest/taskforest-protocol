@@ -223,14 +223,27 @@ function App() {
 
   useEffect(() => { refreshBalance() }, [refreshBalance])
 
-  async function sendTx(conn: Connection, tx: Transaction): Promise<string> {
+  // sendConn: optionally send the signed tx to a different connection (e.g. ER)
+  // Signing always uses L1 blockhash so Phantom recognizes it as devnet
+  async function sendTx(sendConn: Connection, tx: Transaction): Promise<string> {
     if (!publicKey || !signTransaction) throw new Error('Wallet not connected')
     tx.feePayer = publicKey
-    tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash
+    // ALWAYS use L1 blockhash for signing — Phantom checks genesis hash
+    tx.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
     const signed = await signTransaction(tx)
     const raw = signed.serialize()
-    const sig = await conn.sendRawTransaction(raw, { skipPreflight: true })
-    await conn.confirmTransaction(sig, 'confirmed')
+    const sig = await sendConn.sendRawTransaction(raw, { skipPreflight: true })
+    // For ER txs, don't await L1 confirmation — ER has its own consensus
+    if (sendConn === connection) {
+      await connection.confirmTransaction(sig, 'confirmed')
+    } else {
+      // Poll ER for confirmation
+      for (let i = 0; i < 30; i++) {
+        const status = await sendConn.getSignatureStatus(sig)
+        if (status.value?.confirmationStatus === 'confirmed' || status.value?.confirmationStatus === 'finalized') break
+        await new Promise(r => setTimeout(r, 500))
+      }
+    }
     return sig
   }
 
