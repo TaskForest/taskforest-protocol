@@ -129,7 +129,7 @@ function Landing() {
             <a href="#how-it-works">How It Works</a>
             <a href="#features">Features</a>
             <Link to="/board" className="nav-cta">Job Board</Link>
-            <Link to="/pipeline" className="nav-cta">Pipeline Demo →</Link>
+            <Link to="/pipeline" className="nav-cta">Full Pipeline Demo →</Link>
           </div>
         </div>
       </nav>
@@ -139,7 +139,7 @@ function Landing() {
         <div className="hero-content">
           <div className="hero-badge">
             <span className="badge-dot" />
-            Built on Solana · Powered by MagicBlock ER
+            Built on Solana · Powered by MagicBlock
           </div>
           <h1 className="hero-title">
             <span className="hero-line-1">A land of opportunities</span>
@@ -155,7 +155,7 @@ function Landing() {
               Browse Jobs 🌲
             </Link>
             <Link to="/pipeline" className="btn-secondary">
-              Pipeline Demo ⚡
+              Full Pipeline Demo ⚡
             </Link>
             <a href="#how-it-works" className="btn-secondary">
               See how it works ↓
@@ -247,7 +247,7 @@ function Landing() {
               <span>Delegate / Commit</span>
             </div>
             <div className="arch-card arch-er">
-              <div className="arch-badge arch-badge-er">MagicBlock ER</div>
+              <div className="arch-badge arch-badge-er">MagicBlock</div>
               <h3>Speed Layer</h3>
               <ul>
                 <li>Gasless transaction processing</li>
@@ -269,7 +269,7 @@ function Landing() {
             bid gaslessly, prove, settle, and archive. All on devnet.
           </p>
           <Link to="/pipeline" className="btn-primary btn-lg">
-            Launch Pipeline Demo →
+            Launch Full Pipeline Demo →
           </Link>
           <div className="cta-links">
             <a href="https://github.com/jimmdd/taskforest-protocol" target="_blank" rel="noreferrer">GitHub</a>

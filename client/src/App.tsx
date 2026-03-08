@@ -389,7 +389,7 @@ function App() {
         .transaction()
 
       const sig = await sendTx(connection, tx)
-      addEvent(`Delegated → MagicBlock ER`, 'success', { txHash: sig, ms: Date.now() - start })
+      addEvent(`Delegated → MagicBlock`, 'success', { txHash: sig, ms: Date.now() - start })
       setCompletedSteps(prev => new Set([...prev, 'delegate']))
       return 'delegated'
     } catch (e) {
@@ -443,7 +443,7 @@ function App() {
   async function stepBid(erEndpoint: string): Promise<boolean> {
     if (!jobPDA) return false
     setActiveStep('bidding')
-    addEvent(`Bid via ER burner: ${erBurner.publicKey.toBase58().slice(0, 8)}...`, 'er')
+    addEvent(`Bid via burner: ${erBurner.publicKey.toBase58().slice(0, 8)}...`, 'er')
     const start = Date.now()
     try {
       const erConn = new Connection(erEndpoint, {
@@ -780,7 +780,7 @@ function App() {
           </div>
         </div>
         <p className="tagline">
-          Trustless Bounty Pipeline · Escrow-Protected · Solana L1 ↔ MagicBlock ER
+          Full Pipeline Demo · Escrow-Protected · Solana L1 ↔ MagicBlock
         </p>
       </header>
 
@@ -799,11 +799,11 @@ function App() {
           </div>
           <div className="explainer-step">
             <span className="explainer-num">2</span>
-            <span><strong>Delegate</strong> — Push job to MagicBlock ER for fast bidding</span>
+            <span><strong>Delegate</strong> — Push job to MagicBlock for fast bidding</span>
           </div>
           <div className="explainer-step">
             <span className="explainer-num">3</span>
-            <span><strong>Bid</strong> — Worker bids gaslessly on ER (&lt;50ms, 0 gas)</span>
+            <span><strong>Bid</strong> — Worker bids gaslessly on MagicBlock (&lt;50ms, 0 gas)</span>
           </div>
           <div className="explainer-step">
             <span className="explainer-num">4</span>
@@ -826,7 +826,7 @@ function App() {
             <span className="zone-label">L1 · Solana</span>
           </div>
           <div className="zone zone-er">
-            <span className="zone-label">ER · MagicBlock</span>
+            <span className="zone-label">MagicBlock</span>
           </div>
 
           <div className="pipeline-track">

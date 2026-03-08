@@ -237,7 +237,7 @@ export default function Board() {
   async function bidOnJob(job: JobOnChain) {
     if (!program || !publicKey) return
     setActing(job.pubkey.toBase58())
-    log(`Bidding on job #${job.jobId} via ER...`)
+    log(`Bidding on job #${job.jobId} via MagicBlock...`)
     try {
       // Discover ER
       const resp = await fetch(MAGIC_ROUTER, {
@@ -247,7 +247,7 @@ export default function Board() {
       })
       const result: any = await resp.json()
       let erUrl = result.result?.fqdn || result.result?.endpoint
-      if (!erUrl) throw new Error('Job not delegated to ER')
+      if (!erUrl) throw new Error('Job not delegated yet')
       if (!erUrl.startsWith('http')) erUrl = `https://${erUrl}`
 
       const erConn = new Connection(erUrl, 'confirmed')
@@ -262,7 +262,7 @@ export default function Board() {
       tx.feePayer = erBurner.publicKey
       tx.sign(erBurner)
       const sig = await erConn.sendRawTransaction(tx.serialize())
-      log(`⚡ Bid placed on ER! stake=${(stakeAmount / LAMPORTS_PER_SOL).toFixed(4)} SOL tx:${sig.slice(0, 12)}...`)
+      log(`⚡ Bid placed! stake=${(stakeAmount / LAMPORTS_PER_SOL).toFixed(4)} SOL tx:${sig.slice(0, 12)}...`)
 
       // Auto-close bidding
       log('Closing bidding...')
@@ -380,7 +380,7 @@ export default function Board() {
             <span>🌲</span> TaskForest <span className="board-subtitle">Job Board</span>
           </a>
           <div className="board-header-right">
-            <a href="/pipeline" className="board-nav-link">⚡ Pipeline Demo</a>
+            <a href="/pipeline" className="board-nav-link">⚡ Full Pipeline Demo</a>
             <div className="board-network"><span className="dot" /> devnet</div>
             <WalletMultiButton />
           </div>
