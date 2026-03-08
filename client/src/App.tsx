@@ -773,6 +773,7 @@ function App() {
             <span className="logo-text">TaskForest</span>
           </a>
           <div className="header-right">
+            <a href="/board" className="pipeline-nav-link">📋 Job Board</a>
             <div className="network-badge">
               <span className="dot" /> devnet
             </div>

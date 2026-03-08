@@ -140,17 +140,100 @@
     margin-left: auto;
 }
 
-.post-job-group {
+.board-filter {
+    display: flex;
+    gap: 2px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+    padding: 2px;
+}
+
+.filter-btn {
+    padding: 0.3rem 0.7rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.filter-btn.active {
+    background: rgba(52, 211, 153, 0.15);
+    color: var(--accent);
+}
+
+.filter-btn:hover:not(.active) {
+    color: var(--text);
+}
+
+.tx-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+}
+
+.tx-link:hover {
+    text-decoration: underline;
+}
+
+/* Post Card */
+.board-post-card {
+    background: var(--bg-glass);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.2rem 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.board-post-card h3 {
+    margin: 0 0 0.8rem;
+    font-size: 0.95rem;
+    color: var(--text);
+}
+
+.post-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.post-input {
+    padding: 0.55rem 0.8rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 0.85rem;
+    font-family: 'Inter', sans-serif;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.post-input:focus {
+    border-color: var(--accent);
+}
+
+.post-input::placeholder {
+    color: var(--text-dim);
+}
+
+.post-row {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.6rem;
+    margin-top: 0.3rem;
 }
 
 .reward-input-wrap {
     display: flex;
     align-items: center;
     gap: 0.3rem;
-    background: var(--bg-glass);
+    background: rgba(255, 255, 255, 0.04);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 0.4rem 0.6rem;
@@ -165,6 +248,7 @@
     font-size: 0.85rem;
     font-weight: 600;
     outline: none;
+    appearance: textfield;
     -moz-appearance: textfield;
 }
 
@@ -180,26 +264,17 @@
     font-weight: 600;
 }
 
-.desc-input {
-    flex: 1;
-    min-width: 180px;
-    padding: 0.55rem 0.8rem;
-    background: var(--bg-glass);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    font-size: 0.85rem;
-    font-family: 'Inter', sans-serif;
-    outline: none;
-    transition: border-color 0.2s;
-}
-
-.desc-input:focus {
-    border-color: var(--accent);
-}
-
-.desc-input::placeholder {
+/* Pipeline nav link */
+.pipeline-nav-link {
     color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.82rem;
+    font-weight: 600;
+    transition: color 0.2s;
+}
+
+.pipeline-nav-link:hover {
+    color: var(--accent);
 }
 
 .job-desc {

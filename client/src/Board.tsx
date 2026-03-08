@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import {
@@ -55,12 +55,13 @@ export default function Board() {
   const { publicKey, connected, sendTransaction } = useWallet()
   const [jobs, setJobs] = useState<JobOnChain[]>([])
   const [loading, setLoading] = useState(false)
-  const [actionLog, setActionLog] = useState<string[]>([])
+  const [actionLog, setActionLog] = useState<React.ReactNode[]>([])
   const [acting, setActing] = useState<string | null>(null)
   const [rewardSol, setRewardSol] = useState('0.1')
   const [jobDesc, setJobDesc] = useState('Summarize this research paper')
   const [jobTitle, setJobTitle] = useState('Research Task')
   const [metadataMap, setMetadataMap] = useState<Record<string, TaskMetadata>>({})
+  const [activeOnly, setActiveOnly] = useState(false)
 
   const erBurner = useMemo(() => getBurner(), [])
 
@@ -74,9 +75,15 @@ export default function Board() {
     return new anchor.Program(idl as any, provider)
   }, [publicKey, connection])
 
-  const log = useCallback((msg: string) => {
-    setActionLog(prev => [...prev.slice(-20), `${new Date().toLocaleTimeString()} ${msg}`])
+  const log = useCallback((msg: React.ReactNode) => {
+    setActionLog(prev => [...prev.slice(-20), <span key={Date.now()}>[{new Date().toLocaleTimeString()}] {msg}</span>])
   }, [])
+
+  const txLink = (sig: string) => (
+    <a href={`https://solscan.io/tx/${sig}?cluster=devnet`} target="_blank" rel="noreferrer" className="tx-link">
+      {sig.slice(0, 12)}…
+    </a>
+  )
 
   // Fetch all jobs
   const fetchJobs = useCallback(async () => {
@@ -210,7 +217,7 @@ export default function Board() {
         .transaction()
 
       const sig = await sendTx(connection, tx)
-      log(`✅ Job #${jobId} created (${rewardSol} SOL escrowed) tx:${sig.slice(0, 12)}...`)
+      log(<>✅ Job #{jobId} created ({rewardSol} SOL escrowed) tx:{txLink(sig)}</>)
 
       // Save hash + metadata locally for display
       localStorage.setItem(`tf_hash_${jobPDA.toBase58()}`, metaHash)
@@ -224,7 +231,7 @@ export default function Board() {
         .accounts({ payer: publicKey, job: jobPDA })
         .transaction()
       const sig2 = await sendTx(connection, delegateTx)
-      log(`✅ Job is now open for bidding! tx:${sig2.slice(0, 12)}...`)
+      log(<>✅ Job is now open for bidding! tx:{txLink(sig2)}</>)
 
       await fetchJobs()
     } catch (e) {
@@ -262,7 +269,7 @@ export default function Board() {
       tx.feePayer = erBurner.publicKey
       tx.sign(erBurner)
       const sig = await erConn.sendRawTransaction(tx.serialize())
-      log(`⚡ Bid placed! stake=${(stakeAmount / LAMPORTS_PER_SOL).toFixed(4)} SOL tx:${sig.slice(0, 12)}...`)
+      log(<>⚡ Bid placed! stake={(stakeAmount / LAMPORTS_PER_SOL).toFixed(4)} SOL tx:{txLink(sig)}</>)
 
       // Auto-close bidding
       log('Closing bidding...')
@@ -275,7 +282,7 @@ export default function Board() {
       closeTx.feePayer = erBurner.publicKey
       closeTx.sign(erBurner)
       const sig2 = await erConn.sendRawTransaction(closeTx.serialize())
-      log(`🔒 Bidding closed, committing to L1... tx:${sig2.slice(0, 12)}...`)
+      log(<>🔒 Bidding closed, committing to L1... tx:{txLink(sig2)}</>)
 
       // Poll for L1 commit
       for (let i = 0; i < 24; i++) {
@@ -313,7 +320,7 @@ export default function Board() {
         .accounts({ job: job.pubkey, claimer: erBurner.publicKey, systemProgram: SystemProgram.programId })
         .transaction()
       const sig = await sendL1WithBurner(tx)
-      log(`💎 Stake locked! tx:${sig.slice(0, 12)}...`)
+      log(<>💎 Stake locked! tx:{txLink(sig)}</>)
       await fetchJobs()
     } catch (e) {
       log(`❌ Lock stake failed: ${(e as Error).message.slice(0, 150)}`)
@@ -331,7 +338,7 @@ export default function Board() {
         .accounts({ job: job.pubkey, submitter: erBurner.publicKey })
         .transaction()
       const sig = await sendL1WithBurner(tx)
-      log(`📝 Proof submitted! tx:${sig.slice(0, 12)}...`)
+      log(<>📝 Proof submitted! tx:{txLink(sig)}</>)
       await fetchJobs()
     } catch (e) {
       log(`❌ Proof failed: ${(e as Error).message.slice(0, 150)}`)
@@ -355,7 +362,7 @@ export default function Board() {
         })
         .transaction()
       const sig = await sendTx(connection, tx)
-      log(`${verdict === 1 ? '✅' : '❌'} Job ${action}! SOL transferred. tx:${sig.slice(0, 12)}...`)
+      log(<>{verdict === 1 ? '✅' : '❌'} Job {action}! SOL transferred. tx:{txLink(sig)}</>)
       await fetchJobs()
     } catch (e) {
       log(`❌ Settle failed: ${(e as Error).message.slice(0, 150)}`)
@@ -388,53 +395,26 @@ export default function Board() {
       </header>
 
       <div className="board-actions-bar">
-        <div className="post-job-group">
-          <button className="board-btn board-btn-post" onClick={postJob} disabled={!connected || !!acting}>
-            {acting === 'new' ? '⏳ Posting...' : `➕ Post Job`}
-          </button>
-          <div className="reward-input-wrap">
-            <input
-              type="number"
-              className="reward-input"
-              value={rewardSol}
-              onChange={e => setRewardSol(e.target.value)}
-              min="0.01"
-              step="0.05"
-              disabled={!!acting}
-            />
-            <span className="reward-suffix">SOL</span>
-          </div>
-        </div>
-        <input
-          type="text"
-          className="desc-input desc-title"
-          placeholder="Task title"
-          value={jobTitle}
-          onChange={e => setJobTitle(e.target.value)}
-          disabled={!!acting}
-        />
-        <input
-          type="text"
-          className="desc-input"
-          placeholder="Describe the task..."
-          value={jobDesc}
-          onChange={e => setJobDesc(e.target.value)}
-          disabled={!!acting}
-        />
         <button className="board-btn board-btn-refresh" onClick={fetchJobs} disabled={loading}>
           {loading ? '⏳ Loading...' : '🔄 Refresh'}
         </button>
-        <span className="board-job-count">{jobs.length} jobs on-chain</span>
+        <div className="board-filter">
+          <button className={`filter-btn ${!activeOnly ? 'active' : ''}`} onClick={() => setActiveOnly(false)}>All</button>
+          <button className={`filter-btn ${activeOnly ? 'active' : ''}`} onClick={() => setActiveOnly(true)}>Active</button>
+        </div>
+        <span className="board-job-count">
+          {activeOnly ? jobs.filter(j => j.status < 4).length : jobs.length} jobs{activeOnly ? ' active' : ' on-chain'}
+        </span>
       </div>
 
       {/* Job Grid */}
       <section className="board-grid">
         {jobs.length === 0 && !loading && (
           <div className="board-empty">
-            {connected ? 'No jobs found. Post the first one!' : 'Connect wallet to browse jobs'}
+            {connected ? 'No jobs found. Post the first one below!' : 'Connect wallet to browse jobs'}
           </div>
         )}
-        {jobs.map(job => {
+        {jobs.filter(j => !activeOnly || j.status < 4).map(job => {
           const statusInfo = STATUS_LABELS[job.status] || { label: `Status ${job.status}`, color: '#888', icon: '❓' }
           const isMyJob = isPoster(job)
           const isActing = acting === job.pubkey.toBase58()
@@ -545,6 +525,48 @@ export default function Board() {
           )
         })}
       </section>
+
+      {/* Post New Job */}
+      {connected && (
+        <section className="board-post-card glass">
+          <h3>➕ Post a New Task</h3>
+          <div className="post-form">
+            <input
+              type="text"
+              className="post-input"
+              placeholder="Task title"
+              value={jobTitle}
+              onChange={e => setJobTitle(e.target.value)}
+              disabled={!!acting}
+            />
+            <input
+              type="text"
+              className="post-input"
+              placeholder="Describe what needs to be done..."
+              value={jobDesc}
+              onChange={e => setJobDesc(e.target.value)}
+              disabled={!!acting}
+            />
+            <div className="post-row">
+              <div className="reward-input-wrap">
+                <input
+                  type="number"
+                  className="reward-input"
+                  value={rewardSol}
+                  onChange={e => setRewardSol(e.target.value)}
+                  min="0.01"
+                  step="0.05"
+                  disabled={!!acting}
+                />
+                <span className="reward-suffix">SOL</span>
+              </div>
+              <button className="board-btn board-btn-post" onClick={postJob} disabled={!connected || !!acting}>
+                {acting === 'new' ? '⏳ Posting...' : '🚀 Post Task'}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Action Log */}
       {actionLog.length > 0 && (
