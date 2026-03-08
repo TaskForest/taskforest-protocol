@@ -13,13 +13,13 @@ const PROGRAM_ID = new PublicKey('Fgiye795epSDkytp6a334Y2AwjqdGDecWV24yc2neZ4s')
 const MAGIC_ROUTER = 'https://router-devnet.magicblock.app'
 
 const STATUS_LABELS: Record<number, { label: string; color: string; icon: string }> = {
-  0: { label: 'Open',      color: '#34d399', icon: '🟢' },
-  1: { label: 'Bidding',   color: '#fbbf24', icon: '⚡' },
-  2: { label: 'Claimed',   color: '#f97316', icon: '🔒' },
-  3: { label: 'Submitted', color: '#818cf8', icon: '📝' },
-  4: { label: 'Done',      color: '#8b5cf6', icon: '✅' },
-  5: { label: 'Failed',    color: '#ef4444', icon: '❌' },
-  6: { label: 'Staked',    color: '#06b6d4', icon: '💎' },
+  0: { label: 'Open',             color: '#34d399', icon: '🟢' },
+  1: { label: 'Open for Bidding', color: '#fbbf24', icon: '⚡' },
+  2: { label: 'Claimed',          color: '#f97316', icon: '🔒' },
+  3: { label: 'Proof Submitted',  color: '#818cf8', icon: '📝' },
+  4: { label: 'Completed',        color: '#8b5cf6', icon: '✅' },
+  5: { label: 'Failed',           color: '#ef4444', icon: '❌' },
+  6: { label: 'Work in Progress', color: '#06b6d4', icon: '💎' },
 }
 
 // Persistent burner key per browser session
@@ -150,6 +150,7 @@ export default function Board() {
     )
     log(`Creating job #${jobId}...`)
     try {
+      // Step 1: Create job (escrow reward)
       const tx = await program.methods
         .initializeJob(
           new anchor.BN(jobId),
@@ -162,6 +163,16 @@ export default function Board() {
 
       const sig = await sendTx(connection, tx)
       log(`✅ Job #${jobId} created (0.1 SOL escrowed) tx:${sig.slice(0, 12)}...`)
+
+      // Step 2: Auto-delegate to open for bidding
+      log('Opening job for bidding...')
+      const delegateTx = await program.methods
+        .delegateJob()
+        .accounts({ payer: publicKey, job: jobPDA })
+        .transaction()
+      const sig2 = await sendTx(connection, delegateTx)
+      log(`✅ Job is now open for bidding! tx:${sig2.slice(0, 12)}...`)
+
       await fetchJobs()
     } catch (e) {
       log(`❌ Create failed: ${(e as Error).message.slice(0, 100)}`)
@@ -169,23 +180,6 @@ export default function Board() {
     setActing(null)
   }
 
-  async function delegateJob(job: JobOnChain) {
-    if (!program || !publicKey) return
-    setActing(job.pubkey.toBase58())
-    log(`Delegating job #${job.jobId} to ER...`)
-    try {
-      const tx = await program.methods
-        .delegateJob()
-        .accounts({ payer: publicKey, job: job.pubkey })
-        .transaction()
-      const sig = await sendTx(connection, tx)
-      log(`✅ Delegated to ER. tx:${sig.slice(0, 12)}...`)
-      await fetchJobs()
-    } catch (e) {
-      log(`❌ Delegate failed: ${(e as Error).message.slice(0, 100)}`)
-    }
-    setActing(null)
-  }
 
   async function bidOnJob(job: JobOnChain) {
     if (!program || !publicKey) return
@@ -408,17 +402,15 @@ export default function Board() {
               <div className="job-actions">
                 {/* Poster actions */}
                 {isMyJob && job.status === 0 && (
-                  <button className="action-btn action-delegate" onClick={() => delegateJob(job)} disabled={isActing}>
-                    🔗 Delegate to ER
-                  </button>
+                  <span className="job-settled" style={{color: 'var(--text-dim)'}}>Opening for bidding...</span>
                 )}
                 {isMyJob && job.status === 3 && (
                   <>
                     <button className="action-btn action-pass" onClick={() => settleJob(job, 1)} disabled={isActing}>
-                      ✅ Settle (PASS)
+                      ✅ Approve Work
                     </button>
                     <button className="action-btn action-fail" onClick={() => settleJob(job, 0)} disabled={isActing}>
-                      ❌ Reject (FAIL)
+                      ❌ Reject Work
                     </button>
                   </>
                 )}
@@ -426,12 +418,12 @@ export default function Board() {
                 {/* Worker actions */}
                 {!isMyJob && (job.status === 0 || job.status === 1) && (
                   <button className="action-btn action-bid" onClick={() => bidOnJob(job)} disabled={isActing}>
-                    ⚡ Bid & Claim
+                    🤚 Accept Job
                   </button>
                 )}
                 {job.status === 2 && (
                   <button className="action-btn action-stake" onClick={() => lockStake(job)} disabled={isActing}>
-                    💎 Lock Stake
+                    💎 Lock Deposit
                   </button>
                 )}
                 {(job.status === 6 || job.status === 2) && (
