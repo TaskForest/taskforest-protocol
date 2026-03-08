@@ -485,23 +485,46 @@ function App() {
     }
   }
 
+  // Send L1 tx signed by the burner keypair (for steps where burner is the authorized signer)
+  async function sendL1WithBurner(tx: Transaction): Promise<string> {
+    tx.feePayer = erBurner.publicKey
+    tx.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
+    tx.sign(erBurner)
+    const raw = tx.serialize()
+    const sig = await connection.sendRawTransaction(raw, { skipPreflight: true })
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Confirmation timeout (30s)')), 30000)
+    )
+    await Promise.race([connection.confirmTransaction(sig, 'confirmed'), timeout])
+    return sig
+  }
+
   async function stepProve(): Promise<boolean> {
-    if (!program || !publicKey || !jobPDA) return false
+    if (!program || !jobPDA) return false
     setActiveStep('proving')
-    addEvent('Submitting proof on L1...', 'l1')
+    addEvent('Submitting proof on L1 (burner = claimer)...', 'l1')
     const start = Date.now()
     try {
-      const tx = await program.methods
+      // Build program with burner as provider for the tx
+      const burnerWallet = {
+        publicKey: erBurner.publicKey,
+        signTransaction: async (tx: Transaction) => { tx.partialSign(erBurner); return tx },
+        signAllTransactions: async (txs: Transaction[]) => { txs.forEach(t => t.partialSign(erBurner)); return txs },
+      }
+      const burnerProvider = new anchor.AnchorProvider(connection, burnerWallet as any, { commitment: 'confirmed' })
+      const burnerProgram = new Program(idl as any, burnerProvider)
+
+      const tx = await burnerProgram.methods
         .submitProof(randomHash())
-        .accounts({ job: jobPDA, submitter: publicKey })
+        .accounts({ job: jobPDA, submitter: erBurner.publicKey })
         .transaction()
 
-      const sig = await sendTx(connection, tx)
+      const sig = await sendL1WithBurner(tx)
       addEvent(`Proof submitted`, 'success', { txHash: sig, ms: Date.now() - start })
       setCompletedSteps(prev => new Set([...prev, 'proving']))
       return true
     } catch (e) {
-      addEvent(`Proof failed: ${(e as Error).message.slice(0, 80)}`, 'error')
+      addEvent(`Proof failed: ${(e as Error).message.slice(0, 200)}`, 'error')
       return false
     }
   }
