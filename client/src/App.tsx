@@ -784,6 +784,41 @@ function App() {
         </p>
       </header>
 
+      {/* Intro Explainer */}
+      <section className="demo-explainer">
+        <h2>🎯 What is this?</h2>
+        <p>
+          This demo runs the <strong>full lifecycle</strong> of a TaskForest bounty in one click:
+          a poster creates a job with real SOL escrowed, workers bid gaslessly on an Ephemeral Rollup,
+          the winner locks stake, submits proof, and gets paid on-chain.
+        </p>
+        <div className="explainer-steps">
+          <div className="explainer-step">
+            <span className="explainer-num">1</span>
+            <span><strong>Create</strong> — Post job + escrow 0.05 SOL reward into PDA</span>
+          </div>
+          <div className="explainer-step">
+            <span className="explainer-num">2</span>
+            <span><strong>Delegate</strong> — Push job to MagicBlock ER for fast bidding</span>
+          </div>
+          <div className="explainer-step">
+            <span className="explainer-num">3</span>
+            <span><strong>Bid</strong> — Worker bids gaslessly on ER (&lt;50ms, 0 gas)</span>
+          </div>
+          <div className="explainer-step">
+            <span className="explainer-num">4</span>
+            <span><strong>Close</strong> — Select winner, commit result back to L1</span>
+          </div>
+          <div className="explainer-step">
+            <span className="explainer-num">5</span>
+            <span><strong>Stake → Prove → Settle</strong> — Lock deposit, submit proof, get paid</span>
+          </div>
+        </div>
+        <p className="explainer-cta">
+          Want to try it with two wallets? <a href="/board">Go to the Job Board →</a>
+        </p>
+      </section>
+
       {/* Pipeline Visualization */}
       <section className="pipeline-section">
         <div className="pipeline-container">
