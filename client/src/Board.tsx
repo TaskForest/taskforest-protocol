@@ -77,7 +77,7 @@ export default function Board() {
     setLoading(true)
     try {
       const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
-        filters: [{ dataSize: 214 }], // Job account size (8 discriminator + 206 data)
+        filters: [{ dataSize: 222 }], // Job account size: 8 discriminator + 214 data (includes job_id u64)
       })
 
       const parsed: JobOnChain[] = []
