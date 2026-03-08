@@ -3,8 +3,10 @@ import * as anchor from '@coral-xyz/anchor'
 import { Program } from '@coral-xyz/anchor'
 import {
   Connection,
+  Keypair,
   PublicKey,
   SystemProgram,
+  sendAndConfirmTransaction,
   LAMPORTS_PER_SOL,
   Transaction,
 } from '@solana/web3.js'
@@ -17,6 +19,16 @@ import idl from '../../target/idl/taskforest.json'
 
 const PROGRAM_ID = new PublicKey('Fgiye795epSDkytp6a334Y2AwjqdGDecWV24yc2neZ4s')
 const MAGIC_ROUTER = 'https://devnet-router.magicblock.app/'
+const BURNER_KEY = 'taskforest_er_burner_v1'
+
+// Burner keypair for gasless ER transactions (Phantom can't sign for ER genesis)
+function getOrCreateBurner(): Keypair {
+  const raw = localStorage.getItem(BURNER_KEY)
+  if (raw) return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(raw) as number[]))
+  const kp = Keypair.generate()
+  localStorage.setItem(BURNER_KEY, JSON.stringify(Array.from(kp.secretKey)))
+  return kp
+}
 
 // --- Types ---
 type EventEntry = {
@@ -153,6 +165,7 @@ function ParticleCanvas({ activeStep }: { activeStep: PipelineStep }) {
 function App() {
   const { connection } = useConnection()
   const { publicKey, signTransaction, connected } = useWallet()
+  const [erBurner] = useState<Keypair>(() => getOrCreateBurner())
 
   const provider = useMemo(() => {
     if (!publicKey || !signTransaction) return null
@@ -389,23 +402,37 @@ function App() {
     return null
   }
 
+  // Send ER transaction using burner keypair (gasless, no Phantom needed)
+  async function sendErTx(erConn: Connection, tx: Transaction): Promise<string> {
+    tx.feePayer = erBurner.publicKey
+    tx.recentBlockhash = (await erConn.getLatestBlockhash('confirmed')).blockhash
+    return await sendAndConfirmTransaction(erConn, tx, [erBurner], {
+      skipPreflight: true,
+      commitment: 'confirmed',
+    })
+  }
+
   async function stepBid(erEndpoint: string): Promise<boolean> {
-    if (!publicKey || !jobPDA || !signTransaction) return false
+    if (!jobPDA) return false
     setActiveStep('bidding')
-    addEvent('Placing bid on ER (sub-50ms!)...', 'er')
+    addEvent('Placing bid on ER (gasless, burner key)...', 'er')
     const start = Date.now()
     try {
       const erConn = new Connection(erEndpoint, 'confirmed')
-      const erWallet = { publicKey, signTransaction, signAllTransactions: async (txs: Transaction[]) => { const s = []; for (const t of txs) s.push(await signTransaction(t)); return s } }
+      const erWallet = {
+        publicKey: erBurner.publicKey,
+        signTransaction: async (tx: Transaction) => { tx.partialSign(erBurner); return tx },
+        signAllTransactions: async (txs: Transaction[]) => { txs.forEach(t => t.partialSign(erBurner)); return txs },
+      }
       const erProvider = new anchor.AnchorProvider(erConn, erWallet as any, { commitment: 'confirmed' })
       const erProgram = new Program(idl as any, erProvider)
 
       const tx = await erProgram.methods
         .placeBid(new anchor.BN(0.02 * LAMPORTS_PER_SOL))
-        .accounts({ job: jobPDA, bidder: publicKey })
+        .accounts({ job: jobPDA, bidder: erBurner.publicKey })
         .transaction()
 
-      const sig = await sendTx(erConn, tx)
+      const sig = await sendErTx(erConn, tx)
       addEvent(`Bid placed ⚡ gasless`, 'success', { txHash: sig, ms: Date.now() - start })
       setCompletedSteps(prev => new Set([...prev, 'bidding']))
       return true
@@ -416,22 +443,26 @@ function App() {
   }
 
   async function stepClose(erEndpoint: string): Promise<boolean> {
-    if (!publicKey || !jobPDA || !signTransaction) return false
+    if (!jobPDA) return false
     setActiveStep('closing')
     addEvent('Closing bidding → commit to L1...', 'er')
     const start = Date.now()
     try {
       const erConn = new Connection(erEndpoint, 'confirmed')
-      const erWallet = { publicKey, signTransaction, signAllTransactions: async (txs: Transaction[]) => { const s = []; for (const t of txs) s.push(await signTransaction(t)); return s } }
+      const erWallet = {
+        publicKey: erBurner.publicKey,
+        signTransaction: async (tx: Transaction) => { tx.partialSign(erBurner); return tx },
+        signAllTransactions: async (txs: Transaction[]) => { txs.forEach(t => t.partialSign(erBurner)); return txs },
+      }
       const erProvider = new anchor.AnchorProvider(erConn, erWallet as any, { commitment: 'confirmed' })
       const erProgram = new Program(idl as any, erProvider)
 
       const tx = await erProgram.methods
         .closeBidding()
-        .accounts({ payer: publicKey, job: jobPDA })
+        .accounts({ payer: erBurner.publicKey, job: jobPDA })
         .transaction()
 
-      const sig = await sendTx(erConn, tx)
+      const sig = await sendErTx(erConn, tx)
       addEvent(`Bidding closed, committing to L1...`, 'success', { txHash: sig, ms: Date.now() - start })
 
       addEvent('Waiting for L1 settlement (~10s)...', 'info')
