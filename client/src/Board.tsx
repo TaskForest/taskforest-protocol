@@ -60,6 +60,9 @@ export default function Board() {
   const [rewardSol, setRewardSol] = useState('0.1')
   const [jobDesc, setJobDesc] = useState('Summarize this research paper')
   const [jobTitle, setJobTitle] = useState('Research Task')
+  const [jobCategory, setJobCategory] = useState('')
+  const [jobRequirements, setJobRequirements] = useState('')
+  const [deadlineHours, setDeadlineHours] = useState('2')
   const [metadataMap, setMetadataMap] = useState<Record<string, TaskMetadata>>({})
   const [activeOnly, setActiveOnly] = useState(false)
 
@@ -180,14 +183,17 @@ export default function Board() {
         return
       }
 
-      // Build metadata and upload to IPFS
+      // Build metadata and upload
+      const deadlineSec = Math.floor(Date.now() / 1000) + Math.max(1, parseFloat(deadlineHours)) * 3600
       const metadata: TaskMetadata = {
         title: jobTitle || 'Untitled Task',
         description: jobDesc || '',
+        ...(jobCategory ? { category: jobCategory } : {}),
+        ...(jobRequirements.trim() ? { requirements: jobRequirements.split(',').map(r => r.trim()).filter(Boolean) } : {}),
         createdAt: new Date().toISOString(),
         poster: publicKey.toBase58(),
         reward: parseFloat(rewardSol),
-        deadline: Math.floor(Date.now() / 1000) + 7200,
+        deadline: deadlineSec,
       }
 
       log('Uploading task metadata...')
@@ -210,7 +216,7 @@ export default function Board() {
         .initializeJob(
           new anchor.BN(jobId),
           new anchor.BN(rewardLamports),
-          new anchor.BN(Math.floor(Date.now() / 1000) + 7200),
+          new anchor.BN(deadlineSec),
           proofSpecHash
         )
         .accounts({ job: jobPDA, poster: publicKey, systemProgram: SystemProgram.programId })
@@ -533,7 +539,7 @@ export default function Board() {
           <p className="post-note">Title & description are stored off-chain. Reward & deadline go on-chain.</p>
           <div className="post-form">
             <label className="post-label">
-              Task Title
+              Task Title <span className="required">*</span>
               <input
                 type="text"
                 className="post-input"
@@ -544,19 +550,67 @@ export default function Board() {
               />
             </label>
             <label className="post-label">
-              Description
+              Description <span className="required">*</span>
+              <textarea
+                className="post-input post-textarea"
+                placeholder="e.g. Read the attached paper and provide a 500-word summary covering key findings, methodology, and conclusions."
+                value={jobDesc}
+                onChange={e => setJobDesc(e.target.value)}
+                disabled={!!acting}
+                rows={3}
+              />
+            </label>
+            <div className="post-row-2col">
+              <label className="post-label">
+                Category <span className="optional">(optional)</span>
+                <select
+                  className="post-input post-select"
+                  value={jobCategory}
+                  onChange={e => setJobCategory(e.target.value)}
+                  disabled={!!acting}
+                >
+                  <option value="">Select category...</option>
+                  <option value="research">📚 Research</option>
+                  <option value="development">💻 Development</option>
+                  <option value="design">🎨 Design</option>
+                  <option value="writing">✍️ Writing</option>
+                  <option value="data">📊 Data Analysis</option>
+                  <option value="testing">🧪 Testing / QA</option>
+                  <option value="other">🔧 Other</option>
+                </select>
+              </label>
+              <label className="post-label">
+                Deadline <span className="required">*</span>
+                <select
+                  className="post-input post-select"
+                  value={deadlineHours}
+                  onChange={e => setDeadlineHours(e.target.value)}
+                  disabled={!!acting}
+                >
+                  <option value="1">1 hour</option>
+                  <option value="2">2 hours</option>
+                  <option value="6">6 hours</option>
+                  <option value="12">12 hours</option>
+                  <option value="24">24 hours</option>
+                  <option value="72">3 days</option>
+                  <option value="168">1 week</option>
+                </select>
+              </label>
+            </div>
+            <label className="post-label">
+              Requirements <span className="optional">(optional)</span>
               <input
                 type="text"
                 className="post-input"
-                placeholder="e.g. Read the attached paper and provide a 500-word summary"
-                value={jobDesc}
-                onChange={e => setJobDesc(e.target.value)}
+                placeholder="e.g. Python, GPT-4, academic writing (comma-separated)"
+                value={jobRequirements}
+                onChange={e => setJobRequirements(e.target.value)}
                 disabled={!!acting}
               />
             </label>
             <div className="post-row">
               <label className="post-label reward-label">
-                Reward
+                Reward <span className="required">*</span>
                 <div className="reward-input-wrap">
                   <input
                     type="number"

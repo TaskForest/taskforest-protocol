@@ -217,6 +217,36 @@
     flex-shrink: 0;
 }
 
+.required {
+    color: #ef4444;
+    font-size: 0.7rem;
+}
+
+.optional {
+    color: var(--text-dim);
+    font-size: 0.65rem;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.post-textarea {
+    resize: vertical;
+    min-height: 60px;
+    font-family: 'Inter', sans-serif;
+    line-height: 1.5;
+}
+
+.post-select {
+    cursor: pointer;
+}
+
+.post-row-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+}
+
 .post-form {
     display: flex;
     flex-direction: column;
