@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import * as anchor from '@coral-xyz/anchor'
-import { Program, web3 } from '@coral-xyz/anchor'
+import { Program } from '@coral-xyz/anchor'
 import {
   Connection,
   Keypair,
@@ -13,50 +13,53 @@ import {
 import { Buffer } from 'buffer'
 import './App.css'
 
-// IDL will be imported from the built program
 import idl from '../../target/idl/taskforest.json'
 
 const PROGRAM_ID = new PublicKey('Fgiye795epSDkytp6a334Y2AwjqdGDecWV24yc2neZ4s')
 const L1_RPC = 'https://devnet.helius-rpc.com/?api-key=03ec6518-e398-4917-987a-a9fdf13c881a'
 const MAGIC_ROUTER = 'https://devnet-router.magicblock.app/'
-const BURNER_KEY = 'taskforest_burner_secret_key'
+const BURNER_KEY = 'taskforest_burner_v2'
 
-type JobData = {
-  poster: string
-  rewardLamports: number
-  deadline: number
-  status: number
-  claimer: string
-  claimerStake: number
-  bidCount: number
-  bestBidStake: number
-  bestBidder: string
+// --- Types ---
+type EventEntry = {
+  id: number
+  time: string
+  label: string
+  type: 'info' | 'success' | 'error' | 'l1' | 'er' | 'archive'
+  txHash?: string
+  ms?: number
 }
 
-type ArchiveData = {
-  job: string
-  poster: string
-  claimer: string
-  rewardLamports: number
-  verdict: number
-  settledAt: number
+type PipelineStep =
+  | 'idle'
+  | 'init'
+  | 'delegate'
+  | 'bidding'
+  | 'closing'
+  | 'proving'
+  | 'settling'
+  | 'archiving'
+  | 'complete'
+
+const STEP_META: Record<PipelineStep, { label: string; layer: 'l1' | 'er' | 'done' | 'idle'; icon: string }> = {
+  idle:     { label: 'Ready',     layer: 'idle', icon: '⏳' },
+  init:     { label: 'Create',    layer: 'l1',   icon: '📋' },
+  delegate: { label: 'Delegate',  layer: 'l1',   icon: '🔗' },
+  bidding:  { label: 'Bid',       layer: 'er',   icon: '⚡' },
+  closing:  { label: 'Close',     layer: 'er',   icon: '🔒' },
+  proving:  { label: 'Prove',     layer: 'l1',   icon: '📝' },
+  settling: { label: 'Settle',    layer: 'l1',   icon: '⚖️' },
+  archiving:{ label: 'Archive',   layer: 'l1',   icon: '🗄️' },
+  complete: { label: 'Done',      layer: 'done', icon: '✅' },
 }
 
-const STATUS_LABELS: Record<number, { label: string; color: string }> = {
-  0: { label: 'OPEN', color: '#10b981' },
-  1: { label: 'BIDDING', color: '#f59e0b' },
-  2: { label: 'CLAIMED', color: '#3b82f6' },
-  3: { label: 'SUBMITTED', color: '#8b5cf6' },
-  4: { label: 'DONE', color: '#059669' },
-  5: { label: 'FAILED', color: '#ef4444' },
-}
+const PIPELINE_ORDER: PipelineStep[] = [
+  'idle', 'init', 'delegate', 'bidding', 'closing', 'proving', 'settling', 'archiving', 'complete'
+]
 
 function getOrCreateBurner(): Keypair {
   const raw = localStorage.getItem(BURNER_KEY)
-  if (raw) {
-    const bytes = Uint8Array.from(JSON.parse(raw) as number[])
-    return Keypair.fromSecretKey(bytes)
-  }
+  if (raw) return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(raw) as number[]))
   const kp = Keypair.generate()
   localStorage.setItem(BURNER_KEY, JSON.stringify(Array.from(kp.secretKey)))
   return kp
@@ -66,520 +69,591 @@ function randomHash(): number[] {
   return Array.from({ length: 32 }, () => Math.floor(Math.random() * 256))
 }
 
+function nowStr(): string {
+  return new Date().toLocaleTimeString('en-US', { hour12: false, fractionalSecondDigits: 1 } as any)
+}
+
+// ------- Particle Canvas -------
+function ParticleCanvas({ activeStep }: { activeStep: PipelineStep }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const particlesRef = useRef<{x: number; y: number; vx: number; vy: number; life: number; color: string}[]>([])
+  const rafRef = useRef<number>(0)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')!
+    const resize = () => { canvas.width = canvas.offsetWidth * 2; canvas.height = canvas.offsetHeight * 2; ctx.scale(2, 2) }
+    resize()
+    window.addEventListener('resize', resize)
+
+    const colors = {
+      l1: ['#34d399', '#10b981', '#6ee7b7'],
+      er: ['#f59e0b', '#fbbf24', '#fcd34d'],
+      done: ['#8b5cf6', '#a78bfa', '#c4b5fd'],
+      idle: ['#475569', '#64748b', '#94a3b8'],
+    }
+
+    const spawnBurst = (layer: string) => {
+      const w = canvas.offsetWidth
+      const h = canvas.offsetHeight
+      const palette = colors[layer as keyof typeof colors] || colors.l1
+      for (let i = 0; i < 18; i++) {
+        const angle = Math.random() * Math.PI * 2
+        const speed = 0.3 + Math.random() * 1.2
+        particlesRef.current.push({
+          x: w * (0.3 + Math.random() * 0.4),
+          y: h * (0.3 + Math.random() * 0.4),
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 80 + Math.random() * 60,
+          color: palette[Math.floor(Math.random() * palette.length)],
+        })
+      }
+    }
+
+    // Ambient particles
+    const ambient = setInterval(() => {
+      const w = canvas.offsetWidth; const h = canvas.offsetHeight
+      const layer = STEP_META[activeStep]?.layer || 'idle'
+      const palette = colors[layer as keyof typeof colors] || colors.idle
+      for (let i = 0; i < 3; i++) {
+        particlesRef.current.push({
+          x: Math.random() * w,
+          y: Math.random() * h,
+          vx: (Math.random() - 0.5) * 0.3,
+          vy: (Math.random() - 0.5) * 0.3,
+          life: 120 + Math.random() * 80,
+          color: palette[Math.floor(Math.random() * palette.length)],
+        })
+      }
+    }, 200)
+
+    const draw = () => {
+      const w = canvas.offsetWidth; const h = canvas.offsetHeight
+      ctx.clearRect(0, 0, w, h)
+      particlesRef.current = particlesRef.current.filter(p => {
+        p.x += p.vx; p.y += p.vy; p.life -= 1
+        if (p.life <= 0) return false
+        const alpha = Math.min(1, p.life / 40)
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2)
+        ctx.fillStyle = p.color + Math.round(alpha * 255).toString(16).padStart(2, '0')
+        ctx.fill()
+        return true
+      })
+      rafRef.current = requestAnimationFrame(draw)
+    }
+    rafRef.current = requestAnimationFrame(draw)
+
+    // Spawn burst when step changes
+    if (activeStep !== 'idle') {
+      spawnBurst(STEP_META[activeStep]?.layer || 'l1')
+    }
+
+    return () => {
+      cancelAnimationFrame(rafRef.current)
+      clearInterval(ambient)
+      window.removeEventListener('resize', resize)
+    }
+  }, [activeStep])
+
+  return <canvas ref={canvasRef} className="particle-canvas" />
+}
+
+// ------- Main App -------
 function App() {
   const connection = useMemo(() => new Connection(L1_RPC, 'confirmed'), [])
   const [burner] = useState<Keypair>(() => getOrCreateBurner())
-  const wallet = useMemo(() => {
-    // Inline wallet adapter since anchor.Wallet isn't exported in browser
-    return {
-      publicKey: burner.publicKey,
-      signTransaction: async (tx: Transaction) => {
-        tx.partialSign(burner)
-        return tx
-      },
-      signAllTransactions: async (txs: Transaction[]) => {
-        txs.forEach((tx) => tx.partialSign(burner))
-        return txs
-      },
-    }
-  }, [burner])
+  const wallet = useMemo(() => ({
+    publicKey: burner.publicKey,
+    signTransaction: async (tx: Transaction) => { tx.partialSign(burner); return tx },
+    signAllTransactions: async (txs: Transaction[]) => { txs.forEach(t => t.partialSign(burner)); return txs },
+  }), [burner])
   const provider = useMemo(
     () => new anchor.AnchorProvider(connection, wallet as any, { commitment: 'confirmed' }),
     [connection, wallet]
   )
-  const program = useMemo(
-    () => new Program(idl as any, provider),
-    [provider]
-  )
+  const program = useMemo(() => new Program(idl as any, provider), [provider])
 
   const [balanceSol, setBalanceSol] = useState('—')
-  const [status, setStatus] = useState('Ready')
-  const [signature, setSignature] = useState('')
-  const [job, setJob] = useState<JobData | null>(null)
-  const [archive, setArchive] = useState<ArchiveData | null>(null)
+  const [events, setEvents] = useState<EventEntry[]>([])
+  const [activeStep, setActiveStep] = useState<PipelineStep>('idle')
+  const [running, setRunning] = useState(false)
+  const [completedSteps, setCompletedSteps] = useState<Set<PipelineStep>>(new Set())
+  const eventIdRef = useRef(0)
+  const eventsEndRef = useRef<HTMLDivElement>(null)
 
-  // Form fields
-  const [reward, setReward] = useState('0.1')
-  const [deadline, setDeadline] = useState('3600')
-  const [bidStake, setBidStake] = useState('0.02')
+  const [jobPDA] = useMemo(() =>
+    PublicKey.findProgramAddressSync([Buffer.from('job'), burner.publicKey.toBuffer()], PROGRAM_ID),
+    [burner.publicKey]
+  )
+  const [archivePDA] = useMemo(() =>
+    PublicKey.findProgramAddressSync([Buffer.from('archive'), jobPDA.toBuffer()], PROGRAM_ID),
+    [jobPDA]
+  )
 
-  // ER state
-  const [erEndpoint, setErEndpoint] = useState<string | null>(null)
+  const addEvent = useCallback((label: string, type: EventEntry['type'], extra?: Partial<EventEntry>) => {
+    const entry: EventEntry = {
+      id: ++eventIdRef.current,
+      time: nowStr(),
+      label,
+      type,
+      ...extra,
+    }
+    setEvents(prev => [...prev.slice(-50), entry])
+    return entry
+  }, [])
 
-  const [jobPDA] = useMemo(() => {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from('job'), burner.publicKey.toBuffer()],
-      PROGRAM_ID
-    )
-  }, [burner.publicKey])
-
-  const [archivePDA] = useMemo(() => {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from('archive'), jobPDA.toBuffer()],
-      PROGRAM_ID
-    )
-  }, [jobPDA])
+  useEffect(() => {
+    eventsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [events])
 
   const refreshBalance = useCallback(async () => {
     try {
       const lamports = await connection.getBalance(burner.publicKey)
       setBalanceSol((lamports / LAMPORTS_PER_SOL).toFixed(4))
-    } catch {
-      setBalanceSol('Error')
-    }
+    } catch { setBalanceSol('Error') }
   }, [connection, burner.publicKey])
 
-  const refreshJob = useCallback(async () => {
-    try {
-      const j = await program.account.job.fetch(jobPDA)
-      setJob({
-        poster: (j.poster as PublicKey).toBase58(),
-        rewardLamports: (j.rewardLamports as any).toNumber(),
-        deadline: (j.deadline as any).toNumber(),
-        status: j.status as number,
-        claimer: (j.claimer as PublicKey).toBase58(),
-        claimerStake: (j.claimerStake as any).toNumber(),
-        bidCount: j.bidCount as number,
-        bestBidStake: (j.bestBidStake as any).toNumber(),
-        bestBidder: (j.bestBidder as PublicKey).toBase58(),
-      })
-    } catch {
-      setJob(null)
-    }
-
-    // Check archive
-    try {
-      const a = await program.account.settlementArchive.fetch(archivePDA)
-      setArchive({
-        job: (a.job as PublicKey).toBase58(),
-        poster: (a.poster as PublicKey).toBase58(),
-        claimer: (a.claimer as PublicKey).toBase58(),
-        rewardLamports: (a.rewardLamports as any).toNumber(),
-        verdict: a.verdict as number,
-        settledAt: (a.settledAt as any).toNumber(),
-      })
-    } catch {
-      setArchive(null)
-    }
-
-    // Check ER delegation
-    try {
-      const resp = await fetch(MAGIC_ROUTER, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'getDelegationStatus',
-          params: [jobPDA.toBase58()],
-        }),
-      })
-      const result: any = await resp.json()
-      if (result.result?.isDelegated && result.result?.fqdn) {
-        setErEndpoint(result.result.fqdn)
-      } else {
-        setErEndpoint(null)
-      }
-    } catch {
-      setErEndpoint(null)
-    }
-  }, [program, jobPDA, archivePDA])
-
-  useEffect(() => {
-    refreshBalance()
-    refreshJob()
-  }, [refreshBalance, refreshJob])
+  useEffect(() => { refreshBalance() }, [refreshBalance])
 
   async function sendTx(conn: Connection, tx: Transaction): Promise<string> {
     tx.feePayer = burner.publicKey
     tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash
-    return await sendAndConfirmTransaction(conn, tx, [burner], {
-      skipPreflight: true,
-      commitment: 'confirmed',
-    })
+    return await sendAndConfirmTransaction(conn, tx, [burner], { skipPreflight: true, commitment: 'confirmed' })
   }
 
-  async function handleAirdrop() {
+  // ---------- Lifecycle Steps ----------
+  async function stepAirdrop() {
+    addEvent('Requesting airdrop...', 'info')
     try {
-      setStatus('Requesting airdrop...')
       const sig = await connection.requestAirdrop(burner.publicKey, LAMPORTS_PER_SOL)
       await connection.confirmTransaction(sig, 'confirmed')
-      setStatus('✅ Airdrop confirmed')
-      setSignature(sig)
+      addEvent('Airdrop 1 SOL confirmed', 'success', { txHash: sig })
       await refreshBalance()
     } catch (e) {
-      setStatus(`❌ Airdrop failed: ${(e as Error).message}`)
+      addEvent(`Airdrop failed: ${(e as Error).message.slice(0, 80)}`, 'error')
     }
   }
 
-  async function handleCreateJob() {
+  async function stepInit(): Promise<boolean> {
+    setActiveStep('init')
+    addEvent('Creating job on L1...', 'l1')
+    const start = Date.now()
     try {
-      setStatus('Creating job...')
-      const rewardLamports = new anchor.BN(Math.floor(parseFloat(reward) * LAMPORTS_PER_SOL))
-      const deadlineSecs = new anchor.BN(Math.floor(Date.now() / 1000) + parseInt(deadline))
+      // Check if job already exists
+      try {
+        const existing = await program.account.job.fetch(jobPDA)
+        if (existing) {
+          const s = existing.status as number
+          addEvent(`Job already exists (status=${s}). Using existing.`, 'info', { ms: Date.now() - start })
+          // If already settled, we might be able to just archive
+          if (s === 4 || s === 5) {
+            setCompletedSteps(prev => new Set([...prev, 'init', 'delegate', 'bidding', 'closing', 'proving', 'settling']))
+            return true
+          }
+          if (s >= 2) {
+            setCompletedSteps(prev => new Set([...prev, 'init', 'delegate', 'bidding', 'closing']))
+            return true
+          }
+          setCompletedSteps(prev => new Set([...prev, 'init']))
+          return true
+        }
+      } catch { /* doesn't exist, create it */ }
 
       const tx = await program.methods
-        .initializeJob(rewardLamports, deadlineSecs, randomHash())
-        .accounts({
-          job: jobPDA,
-          poster: burner.publicKey,
-          systemProgram: SystemProgram.programId,
-        })
+        .initializeJob(
+          new anchor.BN(0.1 * LAMPORTS_PER_SOL),
+          new anchor.BN(Math.floor(Date.now() / 1000) + 3600),
+          randomHash()
+        )
+        .accounts({ job: jobPDA, poster: burner.publicKey, systemProgram: SystemProgram.programId })
         .transaction()
 
       const sig = await sendTx(connection, tx)
-      setSignature(sig)
-      setStatus('✅ Job created')
-      await refreshJob()
-      await refreshBalance()
+      addEvent(`Job created on L1`, 'success', { txHash: sig, ms: Date.now() - start })
+      setCompletedSteps(prev => new Set([...prev, 'init']))
+      return true
     } catch (e) {
-      setStatus(`❌ Create failed: ${(e as Error).message}`)
+      addEvent(`Create failed: ${(e as Error).message.slice(0, 80)}`, 'error')
+      return false
     }
   }
 
-  async function handleDelegate() {
+  async function stepDelegate(): Promise<boolean> {
+    setActiveStep('delegate')
+    addEvent('Delegating to Ephemeral Rollup...', 'l1')
+    const start = Date.now()
     try {
-      setStatus('Delegating to ER...')
+      // Check status first
+      const job = await program.account.job.fetch(jobPDA)
+      const status = job.status as number
+      if (status !== 0) {
+        addEvent(`Job status=${status}, skipping delegation`, 'info', { ms: Date.now() - start })
+        setCompletedSteps(prev => new Set([...prev, 'delegate']))
+        return true
+      }
+
       const tx = await program.methods
         .delegateJob()
-        .accounts({
-          payer: burner.publicKey,
-          job: jobPDA,
-        })
+        .accounts({ payer: burner.publicKey, job: jobPDA })
         .transaction()
 
       const sig = await sendTx(connection, tx)
-      setSignature(sig)
-      setStatus('✅ Delegated! Waiting for ER pickup...')
-      setTimeout(async () => {
-        await refreshJob()
-        setStatus('✅ Delegation confirmed')
-      }, 6000)
+      addEvent(`Delegated → MagicBlock ER`, 'success', { txHash: sig, ms: Date.now() - start })
+      setCompletedSteps(prev => new Set([...prev, 'delegate']))
+      return true
     } catch (e) {
-      setStatus(`❌ Delegation failed: ${(e as Error).message}`)
+      addEvent(`Delegation failed: ${(e as Error).message.slice(0, 80)}`, 'error')
+      return false
     }
   }
 
-  async function handleBid() {
-    if (!erEndpoint) {
-      setStatus('❌ Not delegated to ER')
-      return
+  async function discoverER(): Promise<string | null> {
+    addEvent('Discovering ER endpoint via Magic Router...', 'info')
+    for (let i = 0; i < 10; i++) {
+      try {
+        const resp = await fetch(MAGIC_ROUTER, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getDelegationStatus', params: [jobPDA.toBase58()] }),
+        })
+        const result: any = await resp.json()
+        if (result.result?.isDelegated && result.result?.fqdn) {
+          const ep = result.result.fqdn.startsWith('http') ? result.result.fqdn : `https://${result.result.fqdn}`
+          addEvent(`ER endpoint: ${new URL(ep).hostname}`, 'er')
+          return ep
+        }
+      } catch { /* retry */ }
+      await new Promise(r => setTimeout(r, 2000))
+      addEvent(`Waiting for ER pickup... (${i + 1}/10)`, 'info')
     }
+    addEvent('ER endpoint not found', 'error')
+    return null
+  }
+
+  async function stepBid(erEndpoint: string): Promise<boolean> {
+    setActiveStep('bidding')
+    addEvent('Placing bid on ER (sub-50ms!)...', 'er')
+    const start = Date.now()
     try {
-      setStatus('Placing bid on ER...')
       const erConn = new Connection(erEndpoint, 'confirmed')
-      const erProvider = new anchor.AnchorProvider(erConn, wallet, { commitment: 'confirmed' })
+      const erProvider = new anchor.AnchorProvider(erConn, wallet as any, { commitment: 'confirmed' })
       const erProgram = new Program(idl as any, erProvider)
 
-      const stake = new anchor.BN(Math.floor(parseFloat(bidStake) * LAMPORTS_PER_SOL))
       const tx = await erProgram.methods
-        .placeBid(stake)
-        .accounts({
-          job: jobPDA,
-          bidder: burner.publicKey,
-        })
+        .placeBid(new anchor.BN(0.02 * LAMPORTS_PER_SOL))
+        .accounts({ job: jobPDA, bidder: burner.publicKey })
         .transaction()
 
       const sig = await sendTx(erConn, tx)
-      setSignature(sig)
-      setStatus('✅ Bid placed on ER')
-      await refreshJob()
+      addEvent(`Bid placed ⚡ gasless`, 'success', { txHash: sig, ms: Date.now() - start })
+      setCompletedSteps(prev => new Set([...prev, 'bidding']))
+      return true
     } catch (e) {
-      setStatus(`❌ Bid failed: ${(e as Error).message}`)
+      addEvent(`Bid failed: ${(e as Error).message.slice(0, 80)}`, 'error')
+      return false
     }
   }
 
-  async function handleCloseBidding() {
-    if (!erEndpoint) {
-      setStatus('❌ Not delegated to ER')
-      return
-    }
+  async function stepClose(erEndpoint: string): Promise<boolean> {
+    setActiveStep('closing')
+    addEvent('Closing bidding → commit to L1...', 'er')
+    const start = Date.now()
     try {
-      setStatus('Closing bidding...')
       const erConn = new Connection(erEndpoint, 'confirmed')
-      const erProvider = new anchor.AnchorProvider(erConn, wallet, { commitment: 'confirmed' })
+      const erProvider = new anchor.AnchorProvider(erConn, wallet as any, { commitment: 'confirmed' })
       const erProgram = new Program(idl as any, erProvider)
 
       const tx = await erProgram.methods
         .closeBidding()
-        .accounts({
-          payer: burner.publicKey,
-          job: jobPDA,
-        })
+        .accounts({ payer: burner.publicKey, job: jobPDA })
         .transaction()
 
       const sig = await sendTx(erConn, tx)
-      setSignature(sig)
-      setStatus('✅ Bidding closed, committing to L1...')
-      setTimeout(async () => {
-        await refreshJob()
-        setStatus('✅ Job claimed on L1')
-      }, 12000)
+      addEvent(`Bidding closed, committing to L1...`, 'success', { txHash: sig, ms: Date.now() - start })
+
+      // Wait for undelegation
+      addEvent('Waiting for L1 settlement (~10s)...', 'info')
+      await new Promise(r => setTimeout(r, 12000))
+      addEvent('Job committed back to L1', 'l1')
+      setCompletedSteps(prev => new Set([...prev, 'closing']))
+      return true
     } catch (e) {
-      setStatus(`❌ Close failed: ${(e as Error).message}`)
+      addEvent(`Close failed: ${(e as Error).message.slice(0, 80)}`, 'error')
+      return false
     }
   }
 
-  async function handleSubmitProof() {
+  async function stepProve(): Promise<boolean> {
+    setActiveStep('proving')
+    addEvent('Submitting proof on L1...', 'l1')
+    const start = Date.now()
     try {
-      setStatus('Submitting proof...')
       const tx = await program.methods
         .submitProof(randomHash())
-        .accounts({
-          job: jobPDA,
-          submitter: burner.publicKey,
-        })
+        .accounts({ job: jobPDA, submitter: burner.publicKey })
         .transaction()
 
       const sig = await sendTx(connection, tx)
-      setSignature(sig)
-      setStatus('✅ Proof submitted')
-      await refreshJob()
+      addEvent(`Proof submitted`, 'success', { txHash: sig, ms: Date.now() - start })
+      setCompletedSteps(prev => new Set([...prev, 'proving']))
+      return true
     } catch (e) {
-      setStatus(`❌ Submit failed: ${(e as Error).message}`)
+      addEvent(`Proof failed: ${(e as Error).message.slice(0, 80)}`, 'error')
+      return false
     }
   }
 
-  async function handleSettle(verdict: number) {
+  async function stepSettle(): Promise<boolean> {
+    setActiveStep('settling')
+    addEvent('Settling job (PASS)...', 'l1')
+    const start = Date.now()
     try {
-      setStatus(`Settling (${verdict === 1 ? 'PASS' : 'FAIL'})...`)
       const tx = await program.methods
-        .settleJob(verdict, randomHash())
-        .accounts({
-          job: jobPDA,
-          settler: burner.publicKey,
-        })
+        .settleJob(1, randomHash())
+        .accounts({ job: jobPDA, settler: burner.publicKey })
         .transaction()
 
       const sig = await sendTx(connection, tx)
-      setSignature(sig)
-      setStatus(`✅ Job ${verdict === 1 ? 'PASSED' : 'FAILED'}`)
-      await refreshJob()
+      addEvent(`✅ Job PASSED`, 'success', { txHash: sig, ms: Date.now() - start })
+      setCompletedSteps(prev => new Set([...prev, 'settling']))
+      return true
     } catch (e) {
-      setStatus(`❌ Settle failed: ${(e as Error).message}`)
+      addEvent(`Settle failed: ${(e as Error).message.slice(0, 80)}`, 'error')
+      return false
     }
   }
 
-  async function handleArchive() {
+  async function stepArchive(): Promise<boolean> {
+    setActiveStep('archiving')
+    addEvent('Archiving settlement to PDA...', 'archive')
+    const start = Date.now()
     try {
-      setStatus('Archiving settlement...')
       const tx = await program.methods
         .archiveSettlement(randomHash())
-        .accounts({
-          payer: burner.publicKey,
-          job: jobPDA,
-          archive: archivePDA,
-          systemProgram: SystemProgram.programId,
-        })
+        .accounts({ payer: burner.publicKey, job: jobPDA, archive: archivePDA, systemProgram: SystemProgram.programId })
         .transaction()
 
       const sig = await sendTx(connection, tx)
-      setSignature(sig)
-      setStatus('✅ Settlement archived')
-      await refreshJob()
+      addEvent(`🗄️ Settlement archived`, 'success', { txHash: sig, ms: Date.now() - start })
+      setCompletedSteps(prev => new Set([...prev, 'archiving']))
+      return true
     } catch (e) {
-      setStatus(`❌ Archive failed: ${(e as Error).message}`)
+      addEvent(`Archive failed: ${(e as Error).message.slice(0, 80)}`, 'error')
+      return false
     }
   }
 
-  const statusInfo = STATUS_LABELS[job?.status ?? -1] || { label: 'N/A', color: '#999' }
+  // ---------- Full Demo Run ----------
+  async function runFullDemo() {
+    if (running) return
+    setRunning(true)
+    setEvents([])
+    setCompletedSteps(new Set())
+    setActiveStep('idle')
+
+    addEvent('TaskForest Pipeline — Full Lifecycle Demo', 'info')
+    addEvent(`Wallet: ${burner.publicKey.toBase58().slice(0, 16)}...`, 'info')
+    await refreshBalance()
+
+    // Step 1: Init
+    if (!await stepInit()) { setRunning(false); return }
+    await new Promise(r => setTimeout(r, 800))
+
+    // Step 2: Delegate
+    if (!await stepDelegate()) { setRunning(false); return }
+    await new Promise(r => setTimeout(r, 1000))
+
+    // Step 3: Discover ER + Bid
+    const job = await program.account.job.fetch(jobPDA)
+    const status = job.status as number
+    let erEndpoint: string | null = null
+
+    if (status < 2) {
+      erEndpoint = await discoverER()
+      if (!erEndpoint) { addEvent('Cannot proceed without ER endpoint', 'error'); setRunning(false); return }
+      if (!await stepBid(erEndpoint)) { setRunning(false); return }
+      await new Promise(r => setTimeout(r, 800))
+
+      // Step 4: Close
+      if (!await stepClose(erEndpoint)) { setRunning(false); return }
+      await new Promise(r => setTimeout(r, 800))
+    } else {
+      addEvent(`Job already at status=${status}, skipping ER steps`, 'info')
+      setCompletedSteps(prev => new Set([...prev, 'bidding', 'closing']))
+    }
+
+    // Step 5: Prove
+    const job2 = await program.account.job.fetch(jobPDA)
+    if ((job2.status as number) === 2) {
+      if (!await stepProve()) { setRunning(false); return }
+      await new Promise(r => setTimeout(r, 800))
+    } else if ((job2.status as number) < 3) {
+      addEvent('Job not in CLAIMED state for proof', 'error')
+      setRunning(false); return
+    } else {
+      addEvent('Proof already submitted', 'info')
+      setCompletedSteps(prev => new Set([...prev, 'proving']))
+    }
+
+    // Step 6: Settle
+    const job3 = await program.account.job.fetch(jobPDA)
+    if ((job3.status as number) === 3) {
+      if (!await stepSettle()) { setRunning(false); return }
+      await new Promise(r => setTimeout(r, 800))
+    } else if ((job3.status as number) >= 4) {
+      addEvent('Job already settled', 'info')
+      setCompletedSteps(prev => new Set([...prev, 'settling']))
+    }
+
+    // Step 7: Archive
+    try {
+      await program.account.settlementArchive.fetch(archivePDA)
+      addEvent('Archive already exists', 'info')
+      setCompletedSteps(prev => new Set([...prev, 'archiving']))
+    } catch {
+      if (!await stepArchive()) { setRunning(false); return }
+    }
+
+    setActiveStep('complete')
+    setCompletedSteps(prev => new Set([...prev, 'complete']))
+    addEvent('🎉 Full lifecycle complete!', 'success')
+    await refreshBalance()
+    setRunning(false)
+  }
+
+  const stepIdx = PIPELINE_ORDER.indexOf(activeStep)
 
   return (
     <main className="app">
-      <header>
-        <div className="header-row">
-          <div>
-            <p className="tag">TaskForest Protocol</p>
-            <h1>Decentralized Bounty Board</h1>
+      <ParticleCanvas activeStep={activeStep} />
+
+      {/* Header */}
+      <header className="header">
+        <div className="logo-row">
+          <div className="logo">
+            <span className="logo-icon">🌲</span>
+            <span className="logo-text">TaskForest</span>
           </div>
           <div className="network-badge">
-            <span className="dot" /> Devnet
+            <span className="dot" /> devnet
           </div>
         </div>
-        <p className="subtitle">
-          Real-time bidding via MagicBlock Ephemeral Rollups · Settlement archiving on-chain
+        <p className="tagline">
+          Real-time Bounty Pipeline · Solana L1 ↔ MagicBlock ER
         </p>
       </header>
 
-      {/* Wallet */}
-      <section className="panel glass">
-        <h2>🔑 Wallet</h2>
-        <div className="kv">
-          <span className="label">Address</span>
-          <code className="mono">{burner.publicKey.toBase58()}</code>
-        </div>
-        <div className="kv">
-          <span className="label">Balance</span>
-          <span className="value-big">{balanceSol} SOL</span>
-        </div>
-        <div className="kv">
-          <span className="label">Job PDA</span>
-          <code className="mono small">{jobPDA.toBase58()}</code>
-        </div>
-        <div className="actions">
-          <button onClick={handleAirdrop}>Airdrop 1 SOL</button>
-          <button className="btn-secondary" onClick={refreshBalance}>Refresh</button>
+      {/* Pipeline Visualization */}
+      <section className="pipeline-section">
+        <div className="pipeline-container">
+          {/* L1 zone */}
+          <div className="zone zone-l1">
+            <span className="zone-label">L1 · Solana</span>
+          </div>
+          {/* ER zone */}
+          <div className="zone zone-er">
+            <span className="zone-label">ER · MagicBlock</span>
+          </div>
+
+          {/* Pipeline nodes */}
+          <div className="pipeline-track">
+            {PIPELINE_ORDER.filter(s => s !== 'idle').map((step, i) => {
+              const meta = STEP_META[step]
+              const isActive = activeStep === step
+              const isCompleted = completedSteps.has(step)
+              const isPast = PIPELINE_ORDER.indexOf(step) < stepIdx
+              return (
+                <div key={step} className="pipeline-node-wrapper">
+                  {i > 0 && (
+                    <div className={`pipeline-connector ${isPast || isCompleted ? 'connector-done' : ''} ${isActive ? 'connector-active' : ''}`}>
+                      <div className="connector-particle" />
+                    </div>
+                  )}
+                  <div
+                    className={`pipeline-node ${meta.layer} ${isActive ? 'node-active' : ''} ${isCompleted ? 'node-done' : ''}`}
+                  >
+                    <span className="node-icon">{meta.icon}</span>
+                    <span className="node-label">{meta.label}</span>
+                    {isActive && <div className="node-ring" />}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       </section>
 
-      {/* Job Status */}
-      {job && (
-        <section className="panel glass">
-          <h2>📋 Job Status</h2>
-          <div className="status-bar">
-            <span
-              className="status-pill"
-              style={{ background: statusInfo.color }}
-            >
-              {statusInfo.label}
-            </span>
-            <span className="meta">
-              Reward: {(job.rewardLamports / LAMPORTS_PER_SOL).toFixed(4)} SOL
-            </span>
-            <span className="meta">
-              Bids: {job.bidCount}
-            </span>
-            {job.bestBidStake > 0 && (
-              <span className="meta">
-                Best: {(job.bestBidStake / LAMPORTS_PER_SOL).toFixed(4)} SOL
-              </span>
-            )}
-            {erEndpoint && (
-              <span className="meta er-badge">
-                ⚡ ER: {new URL(erEndpoint).hostname}
-              </span>
-            )}
-          </div>
-          <div className="kv">
-            <span className="label">Poster</span>
-            <code className="mono small">{job.poster.slice(0, 16)}...</code>
-          </div>
-          {job.claimer !== PublicKey.default.toBase58() && (
+      {/* Controls + Event Stream */}
+      <div className="bottom-row">
+        {/* Controls */}
+        <section className="controls-panel glass">
+          <div className="wallet-info">
             <div className="kv">
-              <span className="label">Claimer</span>
-              <code className="mono small">{job.claimer.slice(0, 16)}...</code>
+              <span className="kv-label">wallet</span>
+              <code className="kv-val">{burner.publicKey.toBase58().slice(0, 12)}...</code>
+            </div>
+            <div className="kv">
+              <span className="kv-label">balance</span>
+              <span className="kv-val accent">{balanceSol} SOL</span>
+            </div>
+            <div className="kv">
+              <span className="kv-label">program</span>
+              <code className="kv-val dim">{PROGRAM_ID.toBase58().slice(0, 12)}...</code>
+            </div>
+          </div>
+
+          <div className="btn-group">
+            <button className="btn btn-run" onClick={runFullDemo} disabled={running}>
+              {running ? '⏳ Running...' : '▶ Run Full Lifecycle'}
+            </button>
+            <button className="btn btn-sm" onClick={stepAirdrop} disabled={running}>
+              💧 Airdrop
+            </button>
+            <button className="btn btn-sm" onClick={refreshBalance} disabled={running}>
+              🔄 Refresh
+            </button>
+          </div>
+
+          {activeStep === 'complete' && (
+            <div className="complete-banner">
+              🎉 Pipeline Complete — All 7 steps executed successfully
             </div>
           )}
-          <div className="kv">
-            <span className="label">Deadline</span>
-            <span>{new Date(job.deadline * 1000).toLocaleString()}</span>
+        </section>
+
+        {/* Event Stream */}
+        <section className="event-stream glass">
+          <h3 className="stream-title">
+            <span className="stream-dot" /> Live Event Stream
+          </h3>
+          <div className="stream-list">
+            {events.length === 0 && (
+              <div className="stream-empty">Click "Run Full Lifecycle" to begin</div>
+            )}
+            {events.map(ev => (
+              <div key={ev.id} className={`stream-entry type-${ev.type}`}>
+                <span className="stream-time">{ev.time}</span>
+                <span className="stream-label">{ev.label}</span>
+                {ev.ms != null && <span className="stream-ms">{ev.ms}ms</span>}
+                {ev.txHash && (
+                  <a
+                    className="stream-link"
+                    href={`https://explorer.solana.com/tx/${ev.txHash}?cluster=devnet`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    ↗
+                  </a>
+                )}
+              </div>
+            ))}
+            <div ref={eventsEndRef} />
           </div>
         </section>
-      )}
-
-      {/* Archive */}
-      {archive && (
-        <section className="panel glass archive-panel">
-          <h2>🗄️ Settlement Archive</h2>
-          <div className="status-bar">
-            <span
-              className="status-pill"
-              style={{ background: archive.verdict === 1 ? '#059669' : '#ef4444' }}
-            >
-              {archive.verdict === 1 ? 'PASS' : 'FAIL'}
-            </span>
-            <span className="meta">
-              Reward: {(archive.rewardLamports / LAMPORTS_PER_SOL).toFixed(4)} SOL
-            </span>
-            <span className="meta">
-              Settled: {new Date(archive.settledAt * 1000).toLocaleString()}
-            </span>
-          </div>
-        </section>
-      )}
-
-      {/* Actions */}
-      <section className="panel glass">
-        <h2>⚡ Actions</h2>
-
-        {!job && (
-          <div className="action-group">
-            <h3>Create Bounty</h3>
-            <div className="grid">
-              <label>
-                Reward (SOL)
-                <input value={reward} onChange={(e) => setReward(e.target.value)} type="number" step="0.01" />
-              </label>
-              <label>
-                Deadline (seconds from now)
-                <input value={deadline} onChange={(e) => setDeadline(e.target.value)} type="number" />
-              </label>
-            </div>
-            <button onClick={handleCreateJob} className="btn-primary">Create Job</button>
-          </div>
-        )}
-
-        {job?.status === 0 && (
-          <div className="action-group">
-            <h3>Delegate to Ephemeral Rollup</h3>
-            <p className="hint">Send this job to MagicBlock's ER for real-time bidding (sub-50ms, gasless)</p>
-            <button onClick={handleDelegate} className="btn-primary">⚡ Delegate to ER</button>
-          </div>
-        )}
-
-        {(job?.status === 0 || job?.status === 1) && erEndpoint && (
-          <div className="action-group">
-            <h3>Place Bid (via ER)</h3>
-            <label>
-              Stake (SOL) — min 10% of reward
-              <input value={bidStake} onChange={(e) => setBidStake(e.target.value)} type="number" step="0.01" />
-            </label>
-            <button onClick={handleBid} className="btn-primary">Place Bid</button>
-          </div>
-        )}
-
-        {job?.status === 1 && erEndpoint && (
-          <div className="action-group">
-            <h3>Close Bidding</h3>
-            <p className="hint">Select winner, commit state back to L1</p>
-            <button onClick={handleCloseBidding} className="btn-primary">Close & Commit</button>
-          </div>
-        )}
-
-        {job?.status === 2 && (
-          <div className="action-group">
-            <h3>Submit Proof</h3>
-            <p className="hint">As the claimer, submit your proof of task completion</p>
-            <button onClick={handleSubmitProof} className="btn-primary">Submit Proof</button>
-          </div>
-        )}
-
-        {job?.status === 3 && (
-          <div className="action-group">
-            <h3>Settle Job</h3>
-            <div className="actions">
-              <button onClick={() => handleSettle(1)} className="btn-pass">✅ Pass</button>
-              <button onClick={() => handleSettle(0)} className="btn-fail">❌ Fail</button>
-            </div>
-          </div>
-        )}
-
-        {(job?.status === 4 || job?.status === 5) && !archive && (
-          <div className="action-group">
-            <h3>Archive Settlement</h3>
-            <p className="hint">Compress the settlement record for cheap on-chain storage</p>
-            <button onClick={handleArchive} className="btn-primary">🗄️ Archive</button>
-          </div>
-        )}
-
-        <button className="btn-secondary refresh-btn" onClick={refreshJob}>🔄 Refresh State</button>
-      </section>
-
-      {/* Status bar */}
-      <section className="status-footer">
-        <p><strong>Status:</strong> {status}</p>
-        {signature && (
-          <p>
-            <a
-              href={`https://explorer.solana.com/tx/${signature}?cluster=devnet`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              View on Explorer ↗
-            </a>
-          </p>
-        )}
-      </section>
+      </div>
     </main>
   )
 }
