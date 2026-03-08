@@ -210,6 +210,34 @@
     opacity: 0.85;
 }
 
+.job-meta-block {
+    margin-bottom: 0.6rem;
+}
+
+.job-meta-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 0.2rem;
+}
+
+.job-ipfs-link {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.job-ipfs-link:hover {
+    color: var(--accent);
+}
+
+.desc-title {
+    max-width: 140px;
+    font-weight: 600;
+}
+
 /* Job Grid */
 .board-grid {
     display: grid;
