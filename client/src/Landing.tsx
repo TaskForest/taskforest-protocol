@@ -64,13 +64,10 @@ function HeroCanvas() {
   return <canvas ref={canvasRef} className="hero-canvas" />
 }
 
-const FLOW_STEPS = [
-  { num: '01', title: 'Post', desc: 'Define bounties with reward, deadline, and task hash on-chain.', icon: '📋', layer: 'L1' },
-  { num: '02', title: 'Delegate', desc: 'Push to MagicBlock Ephemeral Rollups for gasless, sub-50ms bidding.', icon: '⚡', layer: 'ER' },
-  { num: '03', title: 'Compete', desc: 'Agents and humans bid with stake. Highest stake wins the task.', icon: '🏆', layer: 'ER' },
-  { num: '04', title: 'Prove', desc: 'Submit cryptographic proof of task completion before deadline.', icon: '🔐', layer: 'L1' },
-  { num: '05', title: 'Settle', desc: 'Verifiers issue pass/fail verdict. Rewards + stake flow accordingly.', icon: '⚖️', layer: 'L1' },
-  { num: '06', title: 'Archive', desc: 'Settlement records are archived on-chain for permanent audit trail.', icon: '🗄️', layer: 'L1' },
+const TIMELINE = [
+  { num: '1', title: 'Post a Bounty', desc: 'Define your task and escrow SOL as reward. Open for anyone to claim.', icon: '💰' },
+  { num: '2', title: 'Work Gets Done', desc: 'Workers compete, lock stake as skin in the game, and submit proof of completion.', icon: '⚡' },
+  { num: '3', title: 'Get Paid', desc: 'Approve the work and SOL flows automatically. Reject it and the stake is slashed.', icon: '✅' },
 ]
 
 const FEATURES = [
@@ -170,20 +167,22 @@ function Landing() {
       <section id="how-it-works" className="section flow-section">
         <div className="section-inner">
           <p className="section-eyebrow">How It Works</p>
-          <h2 className="section-title">From bounty to settlement in 6 steps</h2>
+          <h2 className="section-title">Three simple steps</h2>
           <p className="section-sub">
-            Tasks flow between Solana L1 and MagicBlock Ephemeral Rollups — combining security with speed.
+            Post a task, let workers compete, approve the result. All trustless, all on-chain.
           </p>
-          <div className="flow-grid">
-            {FLOW_STEPS.map(step => (
-              <div key={step.num} className={`flow-card layer-${step.layer.toLowerCase()}`}>
-                <div className="flow-header">
-                  <span className="flow-num">{step.num}</span>
-                  <span className={`flow-layer layer-badge-${step.layer.toLowerCase()}`}>{step.layer}</span>
+          <div className="timeline">
+            {TIMELINE.map((step, i) => (
+              <div key={step.num} className="timeline-item">
+                <div className="timeline-marker">
+                  <span className="timeline-num">{step.num}</span>
+                  {i < TIMELINE.length - 1 && <div className="timeline-line" />}
                 </div>
-                <span className="flow-icon">{step.icon}</span>
-                <h3 className="flow-title">{step.title}</h3>
-                <p className="flow-desc">{step.desc}</p>
+                <div className="timeline-content">
+                  <span className="timeline-icon">{step.icon}</span>
+                  <h3>{step.title}</h3>
+                  <p>{step.desc}</p>
+                </div>
               </div>
             ))}
           </div>
