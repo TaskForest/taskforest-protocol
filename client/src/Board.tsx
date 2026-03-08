@@ -54,7 +54,8 @@ export default function Board() {
   const [jobs, setJobs] = useState<JobOnChain[]>([])
   const [loading, setLoading] = useState(false)
   const [actionLog, setActionLog] = useState<string[]>([])
-  const [acting, setActing] = useState<string | null>(null) // which job pubkey is being acted on
+  const [acting, setActing] = useState<string | null>(null)
+  const [rewardSol, setRewardSol] = useState('0.1')
 
   const erBurner = useMemo(() => getBurner(), [])
 
@@ -150,11 +151,17 @@ export default function Board() {
     )
     log(`Creating job #${jobId}...`)
     try {
+      const rewardLamports = Math.floor(parseFloat(rewardSol) * LAMPORTS_PER_SOL)
+      if (isNaN(rewardLamports) || rewardLamports <= 0) {
+        log('❌ Invalid reward amount')
+        setActing(null)
+        return
+      }
       // Step 1: Create job (escrow reward)
       const tx = await program.methods
         .initializeJob(
           new anchor.BN(jobId),
-          new anchor.BN(0.1 * LAMPORTS_PER_SOL),
+          new anchor.BN(rewardLamports),
           new anchor.BN(Math.floor(Date.now() / 1000) + 7200),
           Array.from({ length: 32 }, () => Math.floor(Math.random() * 256))
         )
@@ -162,7 +169,7 @@ export default function Board() {
         .transaction()
 
       const sig = await sendTx(connection, tx)
-      log(`✅ Job #${jobId} created (0.1 SOL escrowed) tx:${sig.slice(0, 12)}...`)
+      log(`✅ Job #${jobId} created (${rewardSol} SOL escrowed) tx:${sig.slice(0, 12)}...`)
 
       // Step 2: Auto-delegate to open for bidding
       log('Opening job for bidding...')
@@ -335,11 +342,25 @@ export default function Board() {
       </header>
 
       <div className="board-actions-bar">
-        <button className="board-btn board-btn-post" onClick={postJob} disabled={!connected || !!acting}>
-          {acting === 'new' ? '⏳ Creating...' : '➕ Post New Job (0.1 SOL)'}
-        </button>
+        <div className="post-job-group">
+          <button className="board-btn board-btn-post" onClick={postJob} disabled={!connected || !!acting}>
+            {acting === 'new' ? '⏳ Posting...' : `➕ Post Job`}
+          </button>
+          <div className="reward-input-wrap">
+            <input
+              type="number"
+              className="reward-input"
+              value={rewardSol}
+              onChange={e => setRewardSol(e.target.value)}
+              min="0.01"
+              step="0.05"
+              disabled={!!acting}
+            />
+            <span className="reward-suffix">SOL</span>
+          </div>
+        </div>
         <button className="board-btn board-btn-refresh" onClick={fetchJobs} disabled={loading}>
-          {loading ? '⏳ Loading...' : '🔄 Refresh Jobs'}
+          {loading ? '⏳ Loading...' : '🔄 Refresh'}
         </button>
         <span className="board-job-count">{jobs.length} jobs on-chain</span>
       </div>

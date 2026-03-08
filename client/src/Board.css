@@ -140,6 +140,46 @@
     margin-left: auto;
 }
 
+.post-job-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.reward-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    background: var(--bg-glass);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.4rem 0.6rem;
+}
+
+.reward-input {
+    width: 60px;
+    background: transparent;
+    border: none;
+    color: var(--accent);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    font-weight: 600;
+    outline: none;
+    -moz-appearance: textfield;
+}
+
+.reward-input::-webkit-outer-spin-button,
+.reward-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.reward-suffix {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    font-weight: 600;
+}
+
 /* Job Grid */
 .board-grid {
     display: grid;
