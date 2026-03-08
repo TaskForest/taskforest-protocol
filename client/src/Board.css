@@ -191,9 +191,30 @@
 }
 
 .board-post-card h3 {
-    margin: 0 0 0.8rem;
+    margin: 0 0 0.3rem;
     font-size: 0.95rem;
     color: var(--text);
+}
+
+.post-note {
+    margin: 0 0 0.8rem;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+}
+
+.post-label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.reward-label {
+    flex-shrink: 0;
 }
 
 .post-form {

@@ -530,36 +530,46 @@ export default function Board() {
       {connected && (
         <section className="board-post-card glass">
           <h3>➕ Post a New Task</h3>
+          <p className="post-note">Title & description are stored off-chain. Reward & deadline go on-chain.</p>
           <div className="post-form">
-            <input
-              type="text"
-              className="post-input"
-              placeholder="Task title"
-              value={jobTitle}
-              onChange={e => setJobTitle(e.target.value)}
-              disabled={!!acting}
-            />
-            <input
-              type="text"
-              className="post-input"
-              placeholder="Describe what needs to be done..."
-              value={jobDesc}
-              onChange={e => setJobDesc(e.target.value)}
-              disabled={!!acting}
-            />
+            <label className="post-label">
+              Task Title
+              <input
+                type="text"
+                className="post-input"
+                placeholder="e.g. Summarize research paper on AI alignment"
+                value={jobTitle}
+                onChange={e => setJobTitle(e.target.value)}
+                disabled={!!acting}
+              />
+            </label>
+            <label className="post-label">
+              Description
+              <input
+                type="text"
+                className="post-input"
+                placeholder="e.g. Read the attached paper and provide a 500-word summary"
+                value={jobDesc}
+                onChange={e => setJobDesc(e.target.value)}
+                disabled={!!acting}
+              />
+            </label>
             <div className="post-row">
-              <div className="reward-input-wrap">
-                <input
-                  type="number"
-                  className="reward-input"
-                  value={rewardSol}
-                  onChange={e => setRewardSol(e.target.value)}
-                  min="0.01"
-                  step="0.05"
-                  disabled={!!acting}
-                />
-                <span className="reward-suffix">SOL</span>
-              </div>
+              <label className="post-label reward-label">
+                Reward
+                <div className="reward-input-wrap">
+                  <input
+                    type="number"
+                    className="reward-input"
+                    value={rewardSol}
+                    onChange={e => setRewardSol(e.target.value)}
+                    min="0.01"
+                    step="0.05"
+                    disabled={!!acting}
+                  />
+                  <span className="reward-suffix">SOL</span>
+                </div>
+              </label>
               <button className="board-btn board-btn-post" onClick={postJob} disabled={!connected || !!acting}>
                 {acting === 'new' ? '⏳ Posting...' : '🚀 Post Task'}
               </button>
