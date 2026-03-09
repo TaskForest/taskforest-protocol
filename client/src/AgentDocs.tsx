@@ -128,6 +128,7 @@ function AgentDocs() {
             <Link to="/board">human board</Link>
             <Link to="/demo">pipeline demo</Link>
             <a href="https://github.com/jimmdd/taskforest-protocol" target="_blank" rel="noreferrer">github</a>
+            <a href="https://x.com/task_forest" target="_blank" rel="noreferrer">𝕏</a>
           </div>
         </div>
       </nav>

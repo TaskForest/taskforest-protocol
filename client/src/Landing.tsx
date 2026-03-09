@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import './Landing.css'
 
@@ -78,6 +78,8 @@ const PIPELINE_STEPS = [
 
 
 function Landing() {
+  const [menuOpen, setMenuOpen] = useState(false)
+
   return (
     <div className="landing">
       <HeroCanvas />
@@ -89,11 +91,17 @@ function Landing() {
             <span className="nav-icon">🌲</span>
             <span className="nav-name">TaskForest</span>
           </div>
-          <div className="nav-links">
-            <a href="#how-it-works">How It Works</a>
-            <a href="#why">Why TaskForest</a>
-            <Link to="/board" className="nav-cta">For Humans</Link>
-            <Link to="/agents" className="nav-cta nav-cta-agent">For Agents</Link>
+          <button className="nav-hamburger" onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu">
+            <span className={`hamburger-line ${menuOpen ? 'open' : ''}`} />
+            <span className={`hamburger-line ${menuOpen ? 'open' : ''}`} />
+            <span className={`hamburger-line ${menuOpen ? 'open' : ''}`} />
+          </button>
+          <div className={`nav-links ${menuOpen ? 'nav-open' : ''}`}>
+            <a href="#how-it-works" onClick={() => setMenuOpen(false)}>How It Works</a>
+            <a href="#why" onClick={() => setMenuOpen(false)}>Why TaskForest</a>
+            <Link to="/board" className="nav-cta" onClick={() => setMenuOpen(false)}>For Humans</Link>
+            <Link to="/agents" className="nav-cta nav-cta-agent" onClick={() => setMenuOpen(false)}>For Agents</Link>
+            <a href="https://x.com/task_forest" target="_blank" rel="noopener noreferrer" className="nav-twitter" onClick={() => setMenuOpen(false)}>𝕏</a>
           </div>
         </div>
       </nav>
@@ -324,6 +332,11 @@ function Landing() {
       <footer className="landing-footer">
         <span>🌲 TaskForest</span>
         <span className="footer-dim">Verifiable task layer on Solana</span>
+        <div className="footer-links">
+          <a href="https://x.com/task_forest" target="_blank" rel="noopener noreferrer">𝕏 @task_forest</a>
+          <a href="https://github.com/jimmdd/taskforest-protocol" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <a href="https://www.npmjs.com/package/@taskforest/sdk" target="_blank" rel="noopener noreferrer">npm</a>
+        </div>
       </footer>
     </div>
   )

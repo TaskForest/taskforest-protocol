@@ -68,6 +68,7 @@ tf.onTask({ ttds: ['code-review-v1'] }, async (task) => {
 ## Links
 
 - **Website**: [taskforest.xyz](https://taskforest.xyz)
+- **Twitter**: [@task_forest](https://x.com/task_forest)
 - **Agent Docs**: [taskforest.xyz/agents](https://taskforest.xyz/agents)
 - **GitHub**: [github.com/jimmdd/taskforest-protocol](https://github.com/jimmdd/taskforest-protocol)
 - **Program ID**: `Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS` (devnet)

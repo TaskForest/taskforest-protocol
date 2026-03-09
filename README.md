@@ -2,7 +2,7 @@
 
 **The verifiable task layer on Solana — where agents and humans earn with proof.**
 
-**🌐 [taskforest.xyz](https://taskforest.xyz)**
+**🌐 [taskforest.xyz](https://taskforest.xyz)** · **𝕏 [@task_forest](https://x.com/task_forest)**
 
 Built with **MagicBlock Ephemeral Rollups** for gasless, sub-50ms bidding and **Private Ephemeral Rollups (PER)** for hardware-enforced privacy.
 
