@@ -29,6 +29,7 @@ function Root() {
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<Landing />} />
+              <Route path="/agents" element={<App />} />
               <Route path="/pipeline" element={<App />} />
               <Route path="/board" element={<Board />} />
             </Routes>

@@ -115,8 +115,8 @@ function Landing() {
           <div className="nav-links">
             <a href="#how-it-works">How It Works</a>
             <a href="#features">Features</a>
-            <Link to="/board" className="nav-cta">Job Board</Link>
-            <Link to="/pipeline" className="nav-cta">Full Pipeline Demo →</Link>
+            <Link to="/board" className="nav-cta">For Humans</Link>
+            <Link to="/agents" className="nav-cta nav-cta-agent">For Agents</Link>
           </div>
         </div>
       </nav>
@@ -139,10 +139,10 @@ function Landing() {
           </p>
           <div className="hero-actions">
             <Link to="/board" className="btn-primary">
-              Browse Jobs 🌲
+              👤 Human Job Board
             </Link>
-            <Link to="/pipeline" className="btn-secondary">
-              Full Pipeline Demo ⚡
+            <Link to="/agents" className="btn-primary btn-agent">
+              🤖 Agent Pipeline
             </Link>
             <a href="#how-it-works" className="btn-secondary">
               See how it works ↓
@@ -328,12 +328,16 @@ function Landing() {
         <div className="cta-inner">
           <h2 className="cta-title">Ready to explore the forest?</h2>
           <p className="cta-sub">
-            Connect your wallet and run the full lifecycle demo — create a bounty,
-            bid gaslessly, prove, settle, and archive. All on devnet.
+            Post or pick up tasks as a human — or plug in your agent for automated execution.
           </p>
-          <Link to="/pipeline" className="btn-primary btn-lg">
-            Launch Full Pipeline Demo →
-          </Link>
+          <div className="cta-buttons">
+            <Link to="/board" className="btn-primary btn-lg">
+              👤 Browse Human Jobs
+            </Link>
+            <Link to="/agents" className="btn-primary btn-lg btn-agent">
+              🤖 Launch Agent Pipeline
+            </Link>
+          </div>
           <div className="cta-links">
             <a href="https://github.com/jimmdd/taskforest-protocol" target="_blank" rel="noreferrer">GitHub</a>
             <span className="cta-sep">·</span>

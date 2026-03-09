@@ -226,6 +226,32 @@
     font-size: 1rem;
 }
 
+.btn-agent {
+    background: linear-gradient(135deg, #3b1578 0%, #7c3aed 50%, #a78bfa 100%);
+    box-shadow: 0 4px 24px rgba(124, 58, 237, 0.25);
+}
+
+.btn-agent:hover {
+    box-shadow: 0 8px 36px rgba(124, 58, 237, 0.4);
+}
+
+.nav-cta-agent {
+    background: rgba(124, 58, 237, 0.12) !important;
+    border-color: rgba(124, 58, 237, 0.3) !important;
+    color: #a78bfa !important;
+}
+
+.nav-cta-agent:hover {
+    background: rgba(124, 58, 237, 0.2) !important;
+}
+
+.cta-buttons {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
 .btn-secondary {
     display: inline-block;
     color: #7a9a8e;
