@@ -529,6 +529,68 @@ pub mod taskforest {
         );
         Ok(())
     }
+
+    /// Expire an unclaimed job past its deadline — refunds poster's escrowed SOL.
+    /// Works for STATUS_OPEN and STATUS_BIDDING (no winner was selected).
+    pub fn expire_unclaimed(ctx: Context<ExpireUnclaimed>) -> Result<()> {
+        let job = &mut ctx.accounts.job;
+        require!(
+            job.status == STATUS_OPEN || job.status == STATUS_BIDDING,
+            TaskForestError::WrongStatus
+        );
+        require!(
+            job.poster == ctx.accounts.poster.key(),
+            TaskForestError::Unauthorized
+        );
+
+        let clock = Clock::get()?;
+        require!(
+            clock.unix_timestamp > job.deadline,
+            TaskForestError::DeadlineNotPassed
+        );
+
+        // Refund poster their escrowed reward
+        let refund = job.reward_lamports;
+        let job_info = job.to_account_info();
+        let job_lamports = job_info.lamports();
+        let rent = Rent::get()?.minimum_balance(Job::SIZE);
+        let available = job_lamports.saturating_sub(rent);
+        let transfer_amount = refund.min(available);
+
+        if transfer_amount > 0 {
+            **job_info.try_borrow_mut_lamports()? -= transfer_amount;
+            **ctx.accounts.poster.try_borrow_mut_lamports()? += transfer_amount;
+        }
+
+        job.status = STATUS_FAILED;
+        msg!(
+            "Unclaimed job expired: refund={} bids={}",
+            transfer_amount,
+            job.bid_count
+        );
+        Ok(())
+    }
+
+    /// Extend the deadline of an open/bidding job. Only the poster can call this.
+    pub fn extend_deadline(ctx: Context<ExtendDeadline>, new_deadline: i64) -> Result<()> {
+        let job = &mut ctx.accounts.job;
+        require!(
+            job.status == STATUS_OPEN || job.status == STATUS_BIDDING,
+            TaskForestError::WrongStatus
+        );
+        require!(
+            job.poster == ctx.accounts.poster.key(),
+            TaskForestError::Unauthorized
+        );
+
+        let clock = Clock::get()?;
+        require!(new_deadline > clock.unix_timestamp, TaskForestError::InvalidDeadline);
+
+        let old = job.deadline;
+        job.deadline = new_deadline;
+        msg!("Deadline extended: {} -> {}", old, new_deadline);
+        Ok(())
+    }
 }
 
 // --- Account contexts ---
@@ -658,3 +720,21 @@ pub struct ExpireClaim<'info> {
     #[account(mut)]
     pub poster_account: UncheckedAccount<'info>,
 }
+
+/// Expire an unclaimed job past deadline — poster reclaims SOL.
+#[derive(Accounts)]
+pub struct ExpireUnclaimed<'info> {
+    #[account(mut)]
+    pub job: Account<'info, Job>,
+    #[account(mut)]
+    pub poster: Signer<'info>,
+}
+
+/// Extend deadline of an open/bidding job.
+#[derive(Accounts)]
+pub struct ExtendDeadline<'info> {
+    #[account(mut)]
+    pub job: Account<'info, Job>,
+    pub poster: Signer<'info>,
+}
+

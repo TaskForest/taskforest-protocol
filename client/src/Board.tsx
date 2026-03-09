@@ -64,7 +64,7 @@ export default function Board() {
   const [jobRequirements, setJobRequirements] = useState('')
   const [deadlineHours, setDeadlineHours] = useState('2')
   const [metadataMap, setMetadataMap] = useState<Record<string, TaskMetadata>>({})
-  const [activeOnly, setActiveOnly] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<string>('all')
 
   const erBurner = useMemo(() => getBurner(), [])
 
@@ -93,7 +93,7 @@ export default function Board() {
     setLoading(true)
     try {
       const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
-        filters: [{ dataSize: 222 }], // Job account size: 8 discriminator + 214 data (includes job_id u64)
+        filters: [{ dataSize: 254 }], // Job account size with ttd_hash
       })
 
       const parsed: JobOnChain[] = []
@@ -377,6 +377,21 @@ export default function Board() {
     setActing(null)
   }
 
+  // --- Filtered jobs ---
+  const now = Date.now() / 1000
+  const filteredJobs = useMemo(() => {
+    return jobs.filter((j: JobOnChain) => {
+      const isExpired = j.deadline < now && (j.status === 0 || j.status === 1)
+      if (statusFilter === 'all') return true
+      if (statusFilter === 'expired') return isExpired
+      if (statusFilter === 'open') return j.status === 0 && !isExpired
+      if (statusFilter === 'bidding') return j.status === 1 && !isExpired
+      if (statusFilter === 'active') return j.status >= 2 && j.status <= 3
+      if (statusFilter === 'done') return j.status >= 4
+      return true
+    })
+  }, [jobs, statusFilter, now])
+
   // --- Role helpers ---
   function isPoster(job: JobOnChain) {
     return publicKey && job.poster.equals(publicKey)
@@ -406,22 +421,29 @@ export default function Board() {
           {loading ? '⏳ Loading...' : '🔄 Refresh'}
         </button>
         <div className="board-filter">
-          <button className={`filter-btn ${!activeOnly ? 'active' : ''}`} onClick={() => setActiveOnly(false)}>All</button>
-          <button className={`filter-btn ${activeOnly ? 'active' : ''}`} onClick={() => setActiveOnly(true)}>Active</button>
+          {['all', 'open', 'bidding', 'active', 'done', 'expired'].map(f => (
+            <button
+              key={f}
+              className={`filter-btn ${statusFilter === f ? 'active' : ''}`}
+              onClick={() => setStatusFilter(f)}
+            >
+              {f === 'all' ? 'All' : f === 'open' ? '🟢 Open' : f === 'bidding' ? '⚡ Bidding' : f === 'active' ? '🔒 Active' : f === 'done' ? '✅ Done' : '⏰ Expired'}
+            </button>
+          ))}
         </div>
         <span className="board-job-count">
-          {activeOnly ? jobs.filter(j => j.status < 4).length : jobs.length} jobs{activeOnly ? ' active' : ' on-chain'}
+          {filteredJobs.length} / {jobs.length} jobs
         </span>
       </div>
 
       {/* Job Grid */}
       <section className="board-grid">
-        {jobs.length === 0 && !loading && (
+        {filteredJobs.length === 0 && !loading && (
           <div className="board-empty">
-            {connected ? 'No jobs found. Post the first one below!' : 'Connect wallet to browse jobs'}
+            {connected ? 'No jobs match this filter.' : 'Connect wallet to browse jobs'}
           </div>
         )}
-        {jobs.filter(j => !activeOnly || j.status < 4).map(job => {
+        {filteredJobs.map(job => {
           const statusInfo = STATUS_LABELS[job.status] || { label: `Status ${job.status}`, color: '#888', icon: '❓' }
           const isMyJob = isPoster(job)
           const isActing = acting === job.pubkey.toBase58()
@@ -429,10 +451,10 @@ export default function Board() {
           const isExpired = job.deadline < Date.now() / 1000
 
           return (
-            <div key={job.pubkey.toBase58()} className={`job-card ${isMyJob ? 'job-mine' : ''} ${isActing ? 'job-acting' : ''}`}>
+            <div key={job.pubkey.toBase58()} className={`job-card ${isMyJob ? 'job-mine' : ''} ${isActing ? 'job-acting' : ''} ${isExpired && job.status < 4 ? 'job-expired' : ''}`}>
               <div className="job-card-top">
-                <span className="job-status" style={{ color: statusInfo.color }}>
-                  {statusInfo.icon} {statusInfo.label}
+                <span className="job-status" style={{ color: isExpired && job.status < 4 ? '#ef4444' : statusInfo.color }}>
+                  {isExpired && (job.status === 0 || job.status === 1) ? '⏰ Expired' : `${statusInfo.icon} ${statusInfo.label}`}
                 </span>
                 <span className="job-id">#{job.jobId}</span>
               </div>
@@ -488,8 +510,50 @@ export default function Board() {
 
               {/* Role-aware action buttons */}
               <div className="job-actions">
-                {/* Poster actions */}
-                {isMyJob && job.status === 0 && (
+                {/* Expired job — poster controls */}
+                {isMyJob && isExpired && (job.status === 0 || job.status === 1) && (
+                  <>
+                    <button className="action-btn action-extend" onClick={async () => {
+                      setActing(job.pubkey.toBase58())
+                      try {
+                        const newDeadline = new anchor.BN(Math.floor(Date.now() / 1000) + 7200) // +2 hours
+                        const tx = await program!.methods
+                          .extendDeadline(newDeadline)
+                          .accounts({ job: job.pubkey, poster: publicKey })
+                          .transaction()
+                        const sig = await sendTransaction(tx, connection)
+                        log(<>🔄 Deadline extended +2h — tx:{txLink(sig)}</>)
+                        setTimeout(fetchJobs, 2000)
+                      } catch (e) { log(`❌ Extend failed: ${(e as Error).message.slice(0, 80)}`) }
+                      setActing(null)
+                    }} disabled={isActing}>
+                      🔄 Extend +2h
+                    </button>
+                    <button className="action-btn action-fail" onClick={async () => {
+                      setActing(job.pubkey.toBase58())
+                      try {
+                        const tx = await program!.methods
+                          .expireUnclaimed()
+                          .accounts({ job: job.pubkey, poster: publicKey })
+                          .transaction()
+                        const sig = await sendTransaction(tx, connection)
+                        log(<>💰 SOL reclaimed — tx:{txLink(sig)}</>)
+                        setTimeout(fetchJobs, 2000)
+                      } catch (e) { log(`❌ Reclaim failed: ${(e as Error).message.slice(0, 80)}`) }
+                      setActing(null)
+                    }} disabled={isActing}>
+                      💰 Reclaim SOL
+                    </button>
+                  </>
+                )}
+
+                {/* Expired job — non-poster sees disabled */}
+                {!isMyJob && isExpired && (job.status === 0 || job.status === 1) && (
+                  <span className="job-settled fail">⏰ Deadline passed</span>
+                )}
+
+                {/* Poster actions (non-expired) */}
+                {isMyJob && !isExpired && job.status === 0 && (
                   <span className="job-settled" style={{color: 'var(--text-dim)'}}>Opening for bidding...</span>
                 )}
                 {isMyJob && job.status === 3 && (
@@ -503,8 +567,8 @@ export default function Board() {
                   </>
                 )}
 
-                {/* Worker actions */}
-                {!isMyJob && (job.status === 0 || job.status === 1) && (
+                {/* Worker actions (non-expired) */}
+                {!isMyJob && !isExpired && (job.status === 0 || job.status === 1) && (
                   <button className="action-btn action-bid" onClick={() => bidOnJob(job)} disabled={isActing}>
                     🤚 Accept Job
                   </button>
