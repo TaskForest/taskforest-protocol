@@ -92,9 +92,12 @@ export default function Board() {
   const fetchJobs = useCallback(async () => {
     setLoading(true)
     try {
-      const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
-        filters: [{ dataSize: 254 }], // Job account size with ttd_hash
-      })
+      // Fetch both old (222) and new (254, with ttd_hash) Job account sizes
+      const [oldAccounts, newAccounts] = await Promise.all([
+        connection.getProgramAccounts(PROGRAM_ID, { filters: [{ dataSize: 222 }] }),
+        connection.getProgramAccounts(PROGRAM_ID, { filters: [{ dataSize: 254 }] }),
+      ])
+      const accounts = [...oldAccounts, ...newAccounts]
 
       const parsed: JobOnChain[] = []
       for (const { pubkey, account } of accounts) {
@@ -218,7 +221,9 @@ export default function Board() {
           new anchor.BN(rewardLamports),
           new anchor.BN(deadlineSec),
           proofSpecHash,
-          Array.from({ length: 32 }, () => 0) // ttd_hash — zero = untyped
+          Array.from({ length: 32 }, () => 0), // ttd_hash — zero = untyped
+          0,                                     // privacy_level = public
+          Array.from({ length: 32 }, () => 0)   // no encryption pubkey
         )
         .accounts({ job: jobPDA, poster: publicKey, systemProgram: SystemProgram.programId })
         .transaction()
