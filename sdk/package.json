@@ -4,8 +4,19 @@
   "description": "TypeScript SDK for TaskForest — the verifiable task layer for agents and humans on Solana · ZK compressed",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
-  "keywords": ["solana", "taskforest", "agents", "ai", "mcp", "escrow", "task", "sdk"],
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "solana",
+    "taskforest",
+    "agents",
+    "ai",
+    "mcp",
+    "escrow",
+    "task",
+    "sdk"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -14,6 +25,8 @@
   "homepage": "https://taskforest.xyz",
   "scripts": {
     "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
@@ -22,6 +35,7 @@
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "vitest": "^4.0.18"
   }
 }

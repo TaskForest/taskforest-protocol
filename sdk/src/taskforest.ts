@@ -156,7 +156,8 @@ export class TaskForest {
       ? Array.from(this.encryptionKeypair.publicKey)
       : Array.from({ length: 32 }, () => 0)
 
-    const tx = await (this.program.methods as any)
+    // Batch init + delegate into 1 tx (1 signature)
+    const initIx = await (this.program.methods as any)
       .initializeJob(
         new anchor.BN(jobId),
         new anchor.BN(rewardLamports),
@@ -167,16 +168,15 @@ export class TaskForest {
         encryptionPubkey
       )
       .accounts({ job: jobPDA, poster: this.wallet.publicKey, systemProgram: SystemProgram.programId })
-      .transaction()
+      .instruction()
 
-    const sig = await this.sendTx(tx)
-
-    // Auto-delegate to open for bidding
-    const delegateTx = await (this.program.methods as any)
+    const delegateIx = await (this.program.methods as any)
       .delegateJob()
       .accounts({ payer: this.wallet.publicKey, job: jobPDA })
-      .transaction()
-    await this.sendTx(delegateTx)
+      .instruction()
+
+    const tx = new Transaction().add(initIx).add(delegateIx)
+    const sig = await this.sendTx(tx)
 
     return { jobId, pubkey: jobPDA, signature: sig }
   }
@@ -294,6 +294,31 @@ export class TaskForest {
     return this.sendTx(tx)
   }
 
+  // ─── Batched: Stake + Prove (1 tx, 1 sign) ─────────────────
+  /**
+   * Lock stake and submit proof in a single transaction.
+   *
+   * ```ts
+   * await tf.stakeAndProve(jobPubkey, { analysis: '...' })
+   * ```
+   */
+  async stakeAndProve(jobPubkey: PublicKey, result: any): Promise<string> {
+    const proofHash = this.hashData(result)
+
+    const stakeIx = await (this.program.methods as any)
+      .lockStake()
+      .accounts({ job: jobPubkey, claimer: this.wallet.publicKey, systemProgram: SystemProgram.programId })
+      .instruction()
+
+    const proveIx = await (this.program.methods as any)
+      .submitProof(proofHash)
+      .accounts({ job: jobPubkey, submitter: this.wallet.publicKey })
+      .instruction()
+
+    const tx = new Transaction().add(stakeIx).add(proveIx)
+    return this.sendTx(tx)
+  }
+
   // ─── Submit Proof ───────────────────────────────────────────
   /**
    * Submit proof of completed work.
@@ -340,6 +365,77 @@ export class TaskForest {
     const tx = await (this.program.methods as any)
       .settleJob(verdict)
       .accounts({ poster: this.wallet.publicKey, job: jobPubkey, worker: job.worker })
+      .transaction()
+    return this.sendTx(tx)
+  }
+
+  // ─── Archive Settlement ─────────────────────────────────────
+  /**
+   * Archive a settled job for permanent record.
+   */
+  async archiveSettlement(jobPubkey: PublicKey): Promise<string> {
+    const [archivePDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from('archive'), jobPubkey.toBuffer()],
+      this.programId
+    )
+    const tx = await (this.program.methods as any)
+      .archiveSettlement()
+      .accounts({
+        poster: this.wallet.publicKey,
+        job: jobPubkey,
+        archive: archivePDA,
+        systemProgram: SystemProgram.programId,
+      })
+      .transaction()
+    return this.sendTx(tx)
+  }
+
+  // ─── Batched: Settle + Archive (1 tx, 1 sign) ──────────────
+  /**
+   * Settle and archive in a single transaction.
+   *
+   * ```ts
+   * await tf.settleAndArchive(jobPubkey, true)
+   * ```
+   */
+  async settleAndArchive(jobPubkey: PublicKey, pass: boolean): Promise<string> {
+    const verdict = pass ? 1 : 2
+    const job = await this.getTask(jobPubkey)
+    if (!job) throw new Error('Job not found')
+
+    const [archivePDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from('archive'), jobPubkey.toBuffer()],
+      this.programId
+    )
+
+    const settleIx = await (this.program.methods as any)
+      .settleJob(verdict)
+      .accounts({ poster: this.wallet.publicKey, job: jobPubkey, worker: job.worker })
+      .instruction()
+
+    const archiveIx = await (this.program.methods as any)
+      .archiveSettlement()
+      .accounts({
+        poster: this.wallet.publicKey,
+        job: jobPubkey,
+        archive: archivePDA,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction()
+
+    const tx = new Transaction().add(settleIx).add(archiveIx)
+    return this.sendTx(tx)
+  }
+
+  // ─── Compress Finished Job (ZK) ─────────────────────────────
+  /**
+   * Compress a finished job PDA into a Merkle leaf and reclaim rent.
+   * Requires Light Protocol indexer in production.
+   */
+  async compressFinishedJob(jobPubkey: PublicKey): Promise<string> {
+    const tx = await (this.program.methods as any)
+      .compressFinishedJob()
+      .accounts({ poster: this.wallet.publicKey, job: jobPubkey })
       .transaction()
     return this.sendTx(tx)
   }
