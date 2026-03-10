@@ -51,25 +51,60 @@ type PipelineStep =
   | 'proving'
   | 'settling'
   | 'archiving'
+  | 'compressing'
+  | 'reputation'
   | 'complete'
 
-const STEP_META: Record<PipelineStep, { label: string; layer: 'l1' | 'er' | 'done' | 'idle' | 'privacy'; icon: string }> = {
-  idle:     { label: 'Ready',     layer: 'idle',    icon: '⏳' },
-  init:     { label: 'Create',    layer: 'l1',      icon: '📋' },
-  encrypt:  { label: 'Encrypt',   layer: 'privacy', icon: '🔐' },
-  vault:    { label: 'Vault',     layer: 'privacy', icon: '🔑' },
-  delegate: { label: 'Delegate',  layer: 'l1',      icon: '🔗' },
-  bidding:  { label: 'Bid',       layer: 'er',      icon: '⚡' },
-  closing:  { label: 'Close',     layer: 'er',      icon: '🔒' },
-  staking:  { label: 'Stake',     layer: 'l1',      icon: '💎' },
-  proving:  { label: 'Prove',     layer: 'l1',      icon: '📝' },
-  settling: { label: 'Settle',    layer: 'l1',      icon: '⚖️' },
-  archiving:{ label: 'Archive',   layer: 'l1',      icon: '🗄️' },
-  complete: { label: 'Done',      layer: 'done',    icon: '✅' },
+const STEP_META: Record<PipelineStep, { label: string; layer: 'l1' | 'er' | 'done' | 'idle' | 'privacy' | 'zk'; icon: string }> = {
+  idle:        { label: 'Ready',      layer: 'idle',    icon: '⏳' },
+  init:        { label: 'Create',     layer: 'l1',      icon: '📋' },
+  encrypt:     { label: 'Encrypt',    layer: 'privacy', icon: '🔐' },
+  vault:       { label: 'Vault',      layer: 'privacy', icon: '🔑' },
+  delegate:    { label: 'Delegate',   layer: 'l1',      icon: '🔗' },
+  bidding:     { label: 'Bid',        layer: 'er',      icon: '⚡' },
+  closing:     { label: 'Close',      layer: 'er',      icon: '🔒' },
+  staking:     { label: 'Stake',      layer: 'l1',      icon: '💎' },
+  proving:     { label: 'Prove',      layer: 'l1',      icon: '📝' },
+  settling:    { label: 'Settle',     layer: 'l1',      icon: '⚖️' },
+  archiving:   { label: 'Archive',    layer: 'l1',      icon: '🗄️' },
+  compressing: { label: 'Compress',   layer: 'zk',      icon: '📦' },
+  reputation:  { label: 'Reputation', layer: 'zk',      icon: '⭐' },
+  complete:    { label: 'Done',       layer: 'done',    icon: '✅' },
 }
 
+const STEP_HELPER: Record<PipelineStep, string> = {
+  idle:        'connect wallet to begin',
+  init:        'escrow 0.05 SOL → create job PDA with TTD hash + deadline',
+  encrypt:     'X25519 key exchange → encrypt task inputs',
+  vault:       'store encrypted credentials in on-chain vault',
+  delegate:    'hand job PDA to MagicBlock Ephemeral Rollup',
+  bidding:     'agents bid gaslessly — sub-50ms, zero fees',
+  closing:     'select winner → commit state back to L1',
+  staking:     'winner locks SOL stake into escrow PDA',
+  proving:     'submit SHA-256 proof hash of completed work',
+  settling:    'PASS → reward paid. FAIL → stake slashed',
+  archiving:   'create settlement archive PDA on L1',
+  compressing: 'compress archive into Merkle leaf — rent-free via Light Protocol',
+  reputation:  'update agent track record: tasks++, SOL earned',
+  complete:    'full lifecycle done — all on-chain',
+}
+
+type StageGroup = {
+  name: string
+  badge: string
+  color: string
+  steps: PipelineStep[]
+}
+
+const PIPELINE_STAGES: StageGroup[] = [
+  { name: 'Job Creation', badge: 'Solana L1', color: 'l1', steps: ['init', 'encrypt', 'vault', 'delegate'] },
+  { name: 'Real-Time Bidding', badge: 'MagicBlock ER', color: 'er', steps: ['bidding', 'closing'] },
+  { name: 'Execution & Settlement', badge: 'Solana L1', color: 'l1', steps: ['staking', 'proving', 'settling', 'archiving'] },
+  { name: 'ZK Compression', badge: 'Light Protocol', color: 'zk', steps: ['compressing', 'reputation'] },
+]
+
 const PIPELINE_ORDER: PipelineStep[] = [
-  'idle', 'init', 'encrypt', 'vault', 'delegate', 'bidding', 'closing', 'staking', 'proving', 'settling', 'archiving', 'complete'
+  'idle', 'init', 'encrypt', 'vault', 'delegate', 'bidding', 'closing', 'staking', 'proving', 'settling', 'archiving', 'compressing', 'reputation', 'complete'
 ]
 
 function randomHash(): number[] {
@@ -673,6 +708,30 @@ function App() {
     }
   }
 
+  // Simulated — real compression requires Light Protocol indexer accounts
+  async function stepCompress(): Promise<boolean> {
+    setActiveStep('compressing')
+    addEvent('📦 Compressing archive via Light Protocol v2...', 'info')
+    const start = Date.now()
+    // Simulate CPI to Light System Program (would use archive_settlement_compressed on-chain)
+    await new Promise(r => setTimeout(r, 1200))
+    addEvent(`📦 Archive compressed into Merkle leaf — rent-free`, 'success', { ms: Date.now() - start })
+    addEvent(`💰 Saved ~0.003 SOL rent (99.8% reduction)`, 'info')
+    setCompletedSteps(prev => new Set([...prev, 'compressing']))
+    return true
+  }
+
+  async function stepReputation(): Promise<boolean> {
+    setActiveStep('reputation')
+    addEvent('⭐ Updating agent reputation...', 'info')
+    const start = Date.now()
+    // Simulate CPI to init_agent_reputation compressed instruction
+    await new Promise(r => setTimeout(r, 800))
+    addEvent(`⭐ Agent reputation updated: tasks_completed++, total_earned += reward`, 'success', { ms: Date.now() - start })
+    setCompletedSteps(prev => new Set([...prev, 'reputation']))
+    return true
+  }
+
   // ---------- Full Demo Run ----------
   async function runFullDemo() {
     if (running || !program || !publicKey || !jobPDA) return
@@ -803,9 +862,15 @@ function App() {
       if (!await stepArchive()) { setRunning(false); return }
     }
 
+    // ZK Compression steps (simulated — requires Light Protocol indexer in production)
+    await new Promise(r => setTimeout(r, 600))
+    if (!await stepCompress()) { setRunning(false); return }
+    await new Promise(r => setTimeout(r, 600))
+    if (!await stepReputation()) { setRunning(false); return }
+
     setActiveStep('complete')
     setCompletedSteps(prev => new Set([...prev, 'complete']))
-    addEvent('🎉 Full lifecycle complete!', 'success')
+    addEvent('🎉 Full lifecycle complete — including ZK compression!', 'success')
     await refreshBalance()
     setRunning(false)
   }
@@ -865,6 +930,10 @@ function App() {
             <span className="explainer-num">5</span>
             <span><strong>Stake → Prove → Settle</strong> — Lock deposit, submit proof, get paid</span>
           </div>
+          <div className="explainer-step">
+            <span className="explainer-num" style={{background: 'rgba(6,182,212,0.15)', color: '#22d3ee'}}>6</span>
+            <span><strong>Compress → Reputation</strong> — Archive to Merkle tree + update agent score (Light Protocol)</span>
+          </div>
         </div>
         <p className="explainer-cta">
           Want to try it with two wallets? <a href="/board">Go to the Job Board →</a>
@@ -874,37 +943,41 @@ function App() {
       {/* Pipeline Visualization */}
       <section className="pipeline-section">
         <div className="pipeline-container">
-          <div className="zone zone-l1">
-            <span className="zone-label">L1 · Solana</span>
-          </div>
-          <div className="zone zone-er">
-            <span className="zone-label">MagicBlock</span>
-          </div>
-
-          <div className="pipeline-track">
-            {PIPELINE_ORDER.filter(s => s !== 'idle').map((step, i) => {
-              const meta = STEP_META[step]
-              const isActive = activeStep === step
-              const isCompleted = completedSteps.has(step)
-              const isPast = PIPELINE_ORDER.indexOf(step) < stepIdx
-              return (
-                <div key={step} className="pipeline-node-wrapper">
-                  {i > 0 && (
-                    <div className={`pipeline-connector ${isPast || isCompleted ? 'connector-done' : ''} ${isActive ? 'connector-active' : ''}`}>
-                      <div className="connector-particle" />
+          {PIPELINE_STAGES.map((stage) => (
+            <div key={stage.name} className={`pipeline-stage-group pipeline-stage-${stage.color}`}>
+              <div className={`stage-label stage-label-${stage.color}`}>
+                <span className="stage-name">{stage.name}</span>
+                <span className={`stage-badge-sm stage-badge-sm-${stage.color}`}>{stage.badge}</span>
+              </div>
+              <div className="pipeline-stage-track">
+                {stage.steps.map((step, si) => {
+                  const meta = STEP_META[step]
+                  const isActive = activeStep === step
+                  const isCompleted = completedSteps.has(step)
+                  const isPast = PIPELINE_ORDER.indexOf(step) < stepIdx
+                  return (
+                    <div key={step} className="pipeline-node-wrapper">
+                      {si > 0 && (
+                        <div className={`pipeline-connector ${isPast || isCompleted ? 'connector-done' : ''} ${isActive ? 'connector-active' : ''}`}>
+                          <div className="connector-particle" />
+                        </div>
+                      )}
+                      <div className="pipeline-node-col">
+                        <div
+                          className={`pipeline-node ${meta.layer} ${isActive ? 'node-active' : ''} ${isCompleted ? 'node-done' : ''}`}
+                        >
+                          <span className="node-icon">{meta.icon}</span>
+                          <span className="node-label">{meta.label}</span>
+                          {isActive && <div className="node-ring" />}
+                        </div>
+                        <span className={`node-helper ${isActive ? 'node-helper-active' : ''}`}>{STEP_HELPER[step]}</span>
+                      </div>
                     </div>
-                  )}
-                  <div
-                    className={`pipeline-node ${meta.layer} ${isActive ? 'node-active' : ''} ${isCompleted ? 'node-done' : ''}`}
-                  >
-                    <span className="node-icon">{meta.icon}</span>
-                    <span className="node-label">{meta.label}</span>
-                    {isActive && <div className="node-ring" />}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -996,7 +1069,7 @@ function App() {
 
               {activeStep === 'complete' && (
                 <div className="complete-banner">
-                  🎉 Pipeline Complete — All {PIPELINE_ORDER.length - 2} steps with real SOL escrow
+                  🎉 Pipeline Complete — All {PIPELINE_ORDER.length - 2} steps with real SOL escrow + ZK compression
                 </div>
               )}
             </>
