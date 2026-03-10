@@ -4,7 +4,25 @@ use ephemeral_rollups_sdk::anchor::{commit, delegate, ephemeral};
 use ephemeral_rollups_sdk::cpi::DelegateConfig;
 use ephemeral_rollups_sdk::ephem::commit_and_undelegate_accounts;
 
+// ZK Compression (Light Protocol v2)
+use light_sdk::{
+    account::LightAccount,
+    cpi::{
+        v2::{CpiAccounts as LightCpiAccounts, LightSystemProgramCpi},
+        CpiSigner, InvokeLightSystemProgram, LightCpiInstruction,
+    },
+    derive_light_cpi_signer,
+    instruction::{PackedAddressTreeInfo, ValidityProof},
+    LightDiscriminator,
+};
+use light_sdk::address::v1::derive_address;
+use borsh::{BorshDeserialize, BorshSerialize};
+
 declare_id!("Fgiye795epSDkytp6a334Y2AwjqdGDecWV24yc2neZ4s");
+
+/// CPI signer for Light System Program compressed account operations.
+pub const LIGHT_CPI_SIGNER: CpiSigner =
+    derive_light_cpi_signer!("Fgiye795epSDkytp6a334Y2AwjqdGDecWV24yc2neZ4s");
 
 pub const JOB_SEED: &[u8] = b"job";
 pub const BID_SEED: &[u8] = b"bid";
@@ -143,6 +161,49 @@ pub struct SettlementArchive {
 
 impl SettlementArchive {
     pub const SIZE: usize = 8 + 32 + 32 + 32 + 8 + 8 + 1 + 32 + 32 + 8 + 1;
+}
+
+// --- Compressed Account Structs (ZK Compression via Light Protocol) ---
+
+/// Compressed Settlement Archive — rent-free, stored as Merkle leaf.
+#[derive(
+    Clone, Debug, Default, BorshSerialize, BorshDeserialize, LightDiscriminator,
+)]
+pub struct CompressedArchive {
+    pub job: Pubkey,              // 32
+    pub poster: Pubkey,           // 32
+    pub claimer: Pubkey,          // 32
+    pub reward_lamports: u64,     // 8
+    pub claimer_stake: u64,       // 8
+    pub verdict: u8,              // 1 (0=fail, 1=pass)
+    pub proof_hash: [u8; 32],     // 32
+    pub reason_code: [u8; 32],    // 32
+    pub settled_at: i64,          // 8
+}
+
+/// Compressed Agent Reputation — rent-free on-chain track record.
+#[derive(
+    Clone, Debug, Default, BorshSerialize, BorshDeserialize, LightDiscriminator,
+)]
+pub struct AgentReputation {
+    pub agent: Pubkey,            // 32
+    pub tasks_completed: u32,     // 4
+    pub tasks_failed: u32,        // 4
+    pub total_earned: u64,        // 8
+    pub total_staked: u64,        // 8
+    pub last_active: i64,         // 8
+}
+
+/// Compressed TTD Registry entry — rent-free schema registration.
+#[derive(
+    Clone, Debug, Default, BorshSerialize, BorshDeserialize, LightDiscriminator,
+)]
+pub struct CompressedTtd {
+    pub creator: Pubkey,          // 32
+    pub ttd_hash: [u8; 32],       // 32
+    pub ttd_uri_hash: [u8; 32],   // 32 — hash of URI (URI stored off-chain)
+    pub version: u16,             // 2
+    pub created_at: i64,          // 8
 }
 
 // --- Program instructions ---
@@ -685,6 +746,167 @@ pub mod taskforest {
         );
         Ok(())
     }
+
+    // ===== ZK COMPRESSED INSTRUCTIONS =====
+
+    /// Archive settlement to a compressed account (rent-free via Light Protocol).
+    pub fn archive_settlement_compressed<'info>(
+        ctx: Context<'_, '_, '_, 'info, CompressedArchiveAccounts<'info>>,
+        proof: ValidityProof,
+        address_tree_info: PackedAddressTreeInfo,
+        output_state_tree_index: u8,
+        reason_code: [u8; 32],
+    ) -> Result<()> {
+        let job = &ctx.accounts.job;
+        require!(
+            job.status == STATUS_DONE || job.status == STATUS_FAILED,
+            TaskForestError::WrongStatus
+        );
+
+        let verdict = if job.status == STATUS_DONE { 1u8 } else { 0u8 };
+        let clock = Clock::get()?;
+
+        let light_cpi_accounts = LightCpiAccounts::new(
+            ctx.accounts.signer.as_ref(),
+            ctx.remaining_accounts,
+            crate::LIGHT_CPI_SIGNER,
+        );
+
+        let job_key = ctx.accounts.job.key();
+        let (address, address_seed) = light_sdk::address::v1::derive_address(
+            &[b"compressed_archive", job_key.as_ref()],
+            &address_tree_info
+                .get_tree_pubkey(&light_cpi_accounts)
+                .map_err(|_| ErrorCode::AccountNotEnoughKeys)?,
+            &crate::ID,
+        );
+
+        let mut archive = LightAccount::<CompressedArchive>::new_init(
+            &crate::ID,
+            Some(address),
+            output_state_tree_index,
+        );
+        archive.job = job_key;
+        archive.poster = job.poster;
+        archive.claimer = job.claimer;
+        archive.reward_lamports = job.reward_lamports;
+        archive.claimer_stake = job.claimer_stake;
+        archive.verdict = verdict;
+        archive.proof_hash = job.proof_hash;
+        archive.reason_code = reason_code;
+        archive.settled_at = clock.unix_timestamp;
+
+        LightSystemProgramCpi::new_cpi(LIGHT_CPI_SIGNER, proof)
+            .with_light_account(archive)
+            .map_err(|_| TaskForestError::WrongStatus)?
+            .with_new_addresses(&[address_tree_info.into_new_address_params_assigned_packed(address_seed, Some(output_state_tree_index))])
+            .invoke(light_cpi_accounts)
+            .map_err(|_| TaskForestError::WrongStatus)?;
+
+        msg!("Compressed archive created for job={} verdict={}", job_key, verdict);
+        Ok(())
+    }
+
+    /// Update agent reputation with compressed account (rent-free).
+    /// Creates new reputation on first call, updates existing on subsequent calls.
+    pub fn init_agent_reputation<'info>(
+        ctx: Context<'_, '_, '_, 'info, AgentReputationAccounts<'info>>,
+        proof: ValidityProof,
+        address_tree_info: PackedAddressTreeInfo,
+        output_state_tree_index: u8,
+        tasks_completed: u32,
+        tasks_failed: u32,
+        total_earned: u64,
+        total_staked: u64,
+    ) -> Result<()> {
+        let clock = Clock::get()?;
+
+        let light_cpi_accounts = LightCpiAccounts::new(
+            ctx.accounts.signer.as_ref(),
+            ctx.remaining_accounts,
+            crate::LIGHT_CPI_SIGNER,
+        );
+
+        let agent_key = ctx.accounts.signer.key();
+        let (address, address_seed) = light_sdk::address::v1::derive_address(
+            &[b"agent_reputation", agent_key.as_ref()],
+            &address_tree_info
+                .get_tree_pubkey(&light_cpi_accounts)
+                .map_err(|_| ErrorCode::AccountNotEnoughKeys)?,
+            &crate::ID,
+        );
+
+        let mut reputation = LightAccount::<AgentReputation>::new_init(
+            &crate::ID,
+            Some(address),
+            output_state_tree_index,
+        );
+        reputation.agent = agent_key;
+        reputation.tasks_completed = tasks_completed;
+        reputation.tasks_failed = tasks_failed;
+        reputation.total_earned = total_earned;
+        reputation.total_staked = total_staked;
+        reputation.last_active = clock.unix_timestamp;
+
+        LightSystemProgramCpi::new_cpi(LIGHT_CPI_SIGNER, proof)
+            .with_light_account(reputation)
+            .map_err(|_| TaskForestError::WrongStatus)?
+            .with_new_addresses(&[address_tree_info.into_new_address_params_assigned_packed(address_seed, Some(output_state_tree_index))])
+            .invoke(light_cpi_accounts)
+            .map_err(|_| TaskForestError::WrongStatus)?;
+
+        msg!("Agent reputation initialized for {}", agent_key);
+        Ok(())
+    }
+
+    /// Register a TTD to the compressed registry (rent-free).
+    pub fn register_ttd_compressed<'info>(
+        ctx: Context<'_, '_, '_, 'info, CompressedTtdAccounts<'info>>,
+        proof: ValidityProof,
+        address_tree_info: PackedAddressTreeInfo,
+        output_state_tree_index: u8,
+        ttd_hash: [u8; 32],
+        ttd_uri_hash: [u8; 32],
+        version: u16,
+    ) -> Result<()> {
+        let clock = Clock::get()?;
+
+        let light_cpi_accounts = LightCpiAccounts::new(
+            ctx.accounts.signer.as_ref(),
+            ctx.remaining_accounts,
+            crate::LIGHT_CPI_SIGNER,
+        );
+
+        let creator_key = ctx.accounts.signer.key();
+        let (address, address_seed) = light_sdk::address::v1::derive_address(
+            &[b"compressed_ttd", creator_key.as_ref(), &ttd_hash],
+            &address_tree_info
+                .get_tree_pubkey(&light_cpi_accounts)
+                .map_err(|_| ErrorCode::AccountNotEnoughKeys)?,
+            &crate::ID,
+        );
+
+        let mut ttd = LightAccount::<CompressedTtd>::new_init(
+            &crate::ID,
+            Some(address),
+            output_state_tree_index,
+        );
+        ttd.creator = creator_key;
+        ttd.ttd_hash = ttd_hash;
+        ttd.ttd_uri_hash = ttd_uri_hash;
+        ttd.version = version;
+        ttd.created_at = clock.unix_timestamp;
+
+        LightSystemProgramCpi::new_cpi(LIGHT_CPI_SIGNER, proof)
+            .with_light_account(ttd)
+            .map_err(|_| TaskForestError::WrongStatus)?
+            .with_new_addresses(&[address_tree_info.into_new_address_params_assigned_packed(address_seed, Some(output_state_tree_index))])
+            .invoke(light_cpi_accounts)
+            .map_err(|_| TaskForestError::WrongStatus)?;
+
+        msg!("Compressed TTD registered: hash={:?} v={}", &ttd_hash[..4], version);
+        Ok(())
+    }
 }
 
 // --- Account contexts ---
@@ -855,4 +1077,29 @@ pub struct ClearCredential<'info> {
     #[account(mut)]
     pub vault: Account<'info, CredentialVault>,
     pub poster: Signer<'info>,
+}
+
+// --- Compressed Account Contexts (ZK Compression) ---
+
+/// Context for creating compressed settlement archive.
+#[derive(Accounts)]
+pub struct CompressedArchiveAccounts<'info> {
+    #[account(mut)]
+    pub signer: Signer<'info>,
+    /// The settled job to archive
+    pub job: Account<'info, Job>,
+}
+
+/// Context for initializing/updating agent reputation.
+#[derive(Accounts)]
+pub struct AgentReputationAccounts<'info> {
+    #[account(mut)]
+    pub signer: Signer<'info>,
+}
+
+/// Context for registering compressed TTD.
+#[derive(Accounts)]
+pub struct CompressedTtdAccounts<'info> {
+    #[account(mut)]
+    pub signer: Signer<'info>,
 }

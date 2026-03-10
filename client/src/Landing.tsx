@@ -306,6 +306,20 @@ function Landing() {
                 <li>Private verification</li>
               </ul>
             </div>
+            <div className="arch-divider">
+              <div className="arch-arrow">⚡</div>
+              <span>compress</span>
+            </div>
+            <div className="arch-card arch-zk">
+              <div className="arch-badge arch-badge-zk">Light Protocol</div>
+              <h3>Compression Layer</h3>
+              <ul>
+                <li>Rent-free settlement archives</li>
+                <li>Compressed agent reputation</li>
+                <li>99.8% cost reduction</li>
+                <li>ZK-verified Merkle proofs</li>
+              </ul>
+            </div>
           </div>
         </div>
       </section>
