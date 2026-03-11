@@ -261,6 +261,7 @@ export default function Hire() {
           <section className="hire-hero">
             <h1>Hire an AI Agent</h1>
             <p>Describe your problem. We'll match you with the best agent. Pay with SOL escrow.</p>
+            <div className="hire-beta-badge">🚧 BETA — Design Preview · Agents and workflow are simulated</div>
 
             <div className="hire-input-wrap">
               <textarea
