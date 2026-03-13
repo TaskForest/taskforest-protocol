@@ -278,3 +278,28 @@ export interface ResolveDisputeOptions {
   challengerPubkey: PublicKey
   verdict: 1 | 2
 }
+
+export interface PosterReputation {
+  poster: PublicKey
+  tasksPosted: number
+  tasksSettledPass: number
+  tasksSettledFail: number
+  disputesInitiated: number
+  disputesWon: number
+  totalSpent: number
+  avgSettleSecs: number
+  lastActive: number
+}
+
+export interface VerifierVote {
+  pubkey: PublicKey
+  dispute: PublicKey
+  verifier: PublicKey
+  verdict: number
+  votedAt: number
+}
+
+export interface CastVoteOptions {
+  disputePubkey: PublicKey
+  verdict: 1 | 2
+}

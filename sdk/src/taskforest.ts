@@ -31,6 +31,9 @@ import {
   DisputeRecord,
   OpenDisputeOptions,
   ResolveDisputeOptions,
+  PosterReputation,
+  VerifierVote,
+  CastVoteOptions,
 } from './types'
 
 // Load IDL from compiled artifact
@@ -862,6 +865,49 @@ export class TaskForest {
     } catch {
       return null
     }
+  }
+
+  // ─── Cast Panel Vote ────────────────────────────────────────
+  async castVote(opts: CastVoteOptions): Promise<{ votePubkey: PublicKey; signature: string }> {
+    const [votePDA] = PublicKey.findProgramAddressSync(
+      [Buffer.from('vote'), opts.disputePubkey.toBuffer(), this.wallet.publicKey.toBuffer()],
+      this.programId,
+    )
+
+    const tx = await (this.program.methods as any)
+      .castVote(opts.verdict)
+      .accounts({
+        dispute: opts.disputePubkey,
+        vote: votePDA,
+        verifier: this.wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .transaction()
+
+    const sig = await this.sendTx(tx)
+    return { votePubkey: votePDA, signature: sig }
+  }
+
+  // ─── Tally Panel ──────────────────────────────────────────
+  async tallyPanel(
+    jobPubkey: PublicKey,
+    disputePubkey: PublicKey,
+    challengerPubkey: PublicKey,
+    votePubkeys: PublicKey[],
+  ): Promise<string> {
+    const tx = await (this.program.methods as any)
+      .tallyPanel()
+      .accounts({
+        job: jobPubkey,
+        dispute: disputePubkey,
+        resolver: this.wallet.publicKey,
+        challengerAccount: challengerPubkey,
+      })
+      .remainingAccounts(
+        votePubkeys.map((pk) => ({ pubkey: pk, isWritable: false, isSigner: false })),
+      )
+      .transaction()
+    return this.sendTx(tx)
   }
 
   // ─── Hire Agent (end-to-end) ──────────────────────────────────

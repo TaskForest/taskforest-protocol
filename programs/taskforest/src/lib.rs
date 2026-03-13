@@ -30,6 +30,9 @@ pub const ARCHIVE_SEED: &[u8] = b"archive";
 pub const TTD_SEED: &[u8] = b"ttd";
 pub const VAULT_SEED: &[u8] = b"vault";
 pub const DISPUTE_SEED: &[u8] = b"dispute";
+pub const VOTE_SEED: &[u8] = b"vote";
+pub const PANEL_SIZE: u8 = 5;
+pub const PANEL_QUORUM: u8 = 3;
 
 // --- Status byte constants ---
 pub const STATUS_OPEN: u8 = 0;
@@ -96,6 +99,12 @@ pub enum TaskForestError {
     DisputeStakeTooLow,
     #[msg("Invalid dispute status")]
     InvalidDisputeStatus,
+    #[msg("Panel vote already cast")]
+    AlreadyVoted,
+    #[msg("Panel quorum not reached")]
+    QuorumNotReached,
+    #[msg("Not a designated panel verifier")]
+    NotPanelVerifier,
 }
 
 // --- Account structs ---
@@ -235,6 +244,20 @@ impl DisputeRecord {
     pub const SIZE: usize = 8 + 32 + 32 + 8 + 4 + 32 + 32 + 1 + 32 + 8 + 8 + 1;
 }
 
+#[account]
+#[derive(Default)]
+pub struct VerifierVote {
+    pub dispute: Pubkey,
+    pub verifier: Pubkey,
+    pub verdict: u8,
+    pub voted_at: i64,
+    pub bump: u8,
+}
+
+impl VerifierVote {
+    pub const SIZE: usize = 8 + 32 + 32 + 1 + 8 + 1;
+}
+
 // --- Compressed Account Structs (ZK Compression via Light Protocol) ---
 
 /// Compressed Settlement Archive — rent-free, stored as Merkle leaf.
@@ -293,6 +316,19 @@ pub struct CompressedJob {
     pub proof_hash: [u8; 32],       // 32
     pub submitted_at: i64,          // 8
     pub compressed_at: i64,         // 8 — when this was compressed
+}
+
+#[derive(Clone, Debug, Default, BorshSerialize, BorshDeserialize, LightDiscriminator)]
+pub struct PosterReputation {
+    pub poster: Pubkey,          // 32
+    pub tasks_posted: u32,       // 4
+    pub tasks_settled_pass: u32, // 4
+    pub tasks_settled_fail: u32, // 4
+    pub disputes_initiated: u32, // 4
+    pub disputes_won: u32,       // 4
+    pub total_spent: u64,        // 8
+    pub avg_settle_secs: u64,    // 8
+    pub last_active: i64,        // 8
 }
 
 // --- Program instructions ---
@@ -712,6 +748,116 @@ pub mod taskforest {
 
         dispute.resolved_at = Clock::get()?.unix_timestamp;
         msg!("Dispute resolved: verdict={} job={}", verdict, job.key());
+        Ok(())
+    }
+
+    pub fn cast_vote(ctx: Context<CastVote>, verdict: u8) -> Result<()> {
+        let dispute = &ctx.accounts.dispute;
+        require!(dispute.status == 0, TaskForestError::InvalidDisputeStatus);
+        require!(
+            verdict == 1 || verdict == 2,
+            TaskForestError::InvalidVerdict
+        );
+
+        let vote = &mut ctx.accounts.vote;
+        vote.dispute = dispute.key();
+        vote.verifier = ctx.accounts.verifier.key();
+        vote.verdict = verdict;
+        vote.voted_at = Clock::get()?.unix_timestamp;
+        vote.bump = ctx.bumps.vote;
+
+        msg!(
+            "Vote cast: verifier={} verdict={} dispute={}",
+            vote.verifier,
+            vote.verdict,
+            vote.dispute
+        );
+        Ok(())
+    }
+
+    pub fn tally_panel(ctx: Context<TallyPanel>) -> Result<()> {
+        let job = &mut ctx.accounts.job;
+        let dispute = &mut ctx.accounts.dispute;
+
+        require!(dispute.status == 0, TaskForestError::InvalidDisputeStatus);
+        require!(dispute.job == job.key(), TaskForestError::Unauthorized);
+        require!(
+            dispute.challenger == ctx.accounts.challenger_account.key(),
+            TaskForestError::Unauthorized
+        );
+
+        let mut agent_wins_count: u8 = 0;
+        let mut challenger_wins_count: u8 = 0;
+
+        for account_info in ctx.remaining_accounts.iter() {
+            let data = account_info.try_borrow_data()?;
+            let mut data_slice: &[u8] = &data;
+            if let Ok(vote) = VerifierVote::try_deserialize(&mut data_slice) {
+                if vote.dispute == dispute.key() {
+                    if vote.verdict == 1 {
+                        agent_wins_count = agent_wins_count.saturating_add(1);
+                    } else if vote.verdict == 2 {
+                        challenger_wins_count = challenger_wins_count.saturating_add(1);
+                    }
+                }
+            }
+        }
+
+        let total_votes = agent_wins_count.saturating_add(challenger_wins_count);
+        require!(
+            total_votes >= PANEL_QUORUM,
+            TaskForestError::QuorumNotReached
+        );
+
+        let dispute_info = dispute.to_account_info();
+        let job_info = job.to_account_info();
+
+        let verdict = if agent_wins_count > challenger_wins_count {
+            let dispute_lamports = dispute_info.lamports();
+            let dispute_rent = Rent::get()?.minimum_balance(DisputeRecord::SIZE);
+            let dispute_available = dispute_lamports.saturating_sub(dispute_rent);
+            let transfer_amount = dispute.challenger_stake.min(dispute_available);
+
+            if transfer_amount > 0 {
+                **dispute_info.try_borrow_mut_lamports()? -= transfer_amount;
+                **job_info.try_borrow_mut_lamports()? += transfer_amount;
+            }
+
+            dispute.status = 1;
+            1u8
+        } else {
+            let dispute_lamports = dispute_info.lamports();
+            let dispute_rent = Rent::get()?.minimum_balance(DisputeRecord::SIZE);
+            let dispute_available = dispute_lamports.saturating_sub(dispute_rent);
+            let refund_amount = dispute.challenger_stake.min(dispute_available);
+
+            if refund_amount > 0 {
+                **dispute_info.try_borrow_mut_lamports()? -= refund_amount;
+                **ctx.accounts.challenger_account.try_borrow_mut_lamports()? += refund_amount;
+            }
+
+            let job_lamports = job_info.lamports();
+            let job_rent = Rent::get()?.minimum_balance(Job::SIZE);
+            let job_available = job_lamports.saturating_sub(job_rent);
+            let penalty_amount = job.claimer_stake.min(job_available);
+
+            if penalty_amount > 0 {
+                **job_info.try_borrow_mut_lamports()? -= penalty_amount;
+                **ctx.accounts.challenger_account.try_borrow_mut_lamports()? += penalty_amount;
+            }
+
+            job.status = STATUS_FAILED;
+            dispute.status = 2;
+            2u8
+        };
+
+        dispute.resolved_at = Clock::get()?.unix_timestamp;
+        msg!(
+            "Panel tally: agent_votes={} challenger_votes={} verdict={}",
+            agent_wins_count,
+            challenger_wins_count,
+            verdict
+        );
         Ok(())
     }
 
@@ -1295,6 +1441,65 @@ pub mod taskforest {
         Ok(())
     }
 
+    pub fn init_poster_reputation<'info>(
+        ctx: Context<'_, '_, '_, 'info, PosterReputationAccounts<'info>>,
+        proof: ValidityProof,
+        address_tree_info: PackedAddressTreeInfo,
+        output_state_tree_index: u8,
+        tasks_posted: u32,
+        tasks_settled_pass: u32,
+        tasks_settled_fail: u32,
+        disputes_initiated: u32,
+        disputes_won: u32,
+        total_spent: u64,
+        avg_settle_secs: u64,
+    ) -> Result<()> {
+        let clock = Clock::get()?;
+
+        let light_cpi_accounts = LightCpiAccounts::new(
+            ctx.accounts.signer.as_ref(),
+            ctx.remaining_accounts,
+            crate::LIGHT_CPI_SIGNER,
+        );
+
+        let poster_key = ctx.accounts.signer.key();
+        let (address, address_seed) = light_sdk::address::v1::derive_address(
+            &[b"poster_reputation", poster_key.as_ref()],
+            &address_tree_info
+                .get_tree_pubkey(&light_cpi_accounts)
+                .map_err(|_| ErrorCode::AccountNotEnoughKeys)?,
+            &crate::ID,
+        );
+
+        let mut reputation = LightAccount::<PosterReputation>::new_init(
+            &crate::ID,
+            Some(address),
+            output_state_tree_index,
+        );
+        reputation.poster = poster_key;
+        reputation.tasks_posted = tasks_posted;
+        reputation.tasks_settled_pass = tasks_settled_pass;
+        reputation.tasks_settled_fail = tasks_settled_fail;
+        reputation.disputes_initiated = disputes_initiated;
+        reputation.disputes_won = disputes_won;
+        reputation.total_spent = total_spent;
+        reputation.avg_settle_secs = avg_settle_secs;
+        reputation.last_active = clock.unix_timestamp;
+
+        LightSystemProgramCpi::new_cpi(LIGHT_CPI_SIGNER, proof)
+            .with_light_account(reputation)
+            .map_err(|_| TaskForestError::WrongStatus)?
+            .with_new_addresses(&[address_tree_info.into_new_address_params_assigned_packed(
+                address_seed,
+                Some(output_state_tree_index),
+            )])
+            .invoke(light_cpi_accounts)
+            .map_err(|_| TaskForestError::WrongStatus)?;
+
+        msg!("Poster reputation initialized for {}", poster_key);
+        Ok(())
+    }
+
     /// Register a TTD to the compressed registry (rent-free).
     pub fn register_ttd_compressed<'info>(
         ctx: Context<'_, '_, '_, 'info, CompressedTtdAccounts<'info>>,
@@ -1544,6 +1749,34 @@ pub struct ResolveDispute<'info> {
     pub challenger_account: UncheckedAccount<'info>,
 }
 
+#[derive(Accounts)]
+pub struct CastVote<'info> {
+    pub dispute: Account<'info, DisputeRecord>,
+    #[account(
+        init,
+        payer = verifier,
+        space = VerifierVote::SIZE,
+        seeds = [VOTE_SEED, dispute.key().as_ref(), verifier.key().as_ref()],
+        bump
+    )]
+    pub vote: Account<'info, VerifierVote>,
+    #[account(mut)]
+    pub verifier: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct TallyPanel<'info> {
+    #[account(mut)]
+    pub job: Account<'info, Job>,
+    #[account(mut)]
+    pub dispute: Account<'info, DisputeRecord>,
+    pub resolver: Signer<'info>,
+    /// CHECK: Receives stake on challenger_wins. Validated via dispute.challenger.
+    #[account(mut)]
+    pub challenger_account: UncheckedAccount<'info>,
+}
+
 #[delegate]
 #[derive(Accounts)]
 pub struct DelegateJob<'info> {
@@ -1694,6 +1927,12 @@ pub struct CompressedArchiveAccounts<'info> {
 /// Context for initializing/updating agent reputation.
 #[derive(Accounts)]
 pub struct AgentReputationAccounts<'info> {
+    #[account(mut)]
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct PosterReputationAccounts<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
 }

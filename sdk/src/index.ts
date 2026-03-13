@@ -35,4 +35,7 @@ export type {
   DisputeRecord,
   OpenDisputeOptions,
   ResolveDisputeOptions,
+  PosterReputation,
+  VerifierVote,
+  CastVoteOptions,
 } from './types'
