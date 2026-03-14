@@ -39,7 +39,21 @@ import {
 // Load IDL from compiled artifact
 import idl from '../../target/idl/taskforest.json'
 
-const DEFAULT_PROGRAM_ID = 'Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS'
+const DEFAULT_PROGRAM_ID = 'Fgiye795epSDkytp6a334Y2AwjqdGDecWV24yc2neZ4s'
+
+/** Pre-configured environment presets */
+export const ENVIRONMENT_PRESETS = {
+  devnet: {
+    rpc: 'https://api.devnet.solana.com',
+    network: 'devnet' as const,
+    programId: DEFAULT_PROGRAM_ID,
+  },
+  'mainnet-beta': {
+    rpc: 'https://api.mainnet-beta.solana.com',
+    network: 'mainnet-beta' as const,
+    programId: DEFAULT_PROGRAM_ID,
+  },
+} satisfies Record<string, Omit<TaskForestConfig, 'wallet'>>
 
 const STATUS_LABELS: Record<number, string> = {
   0: 'open',
@@ -100,6 +114,22 @@ export class TaskForest {
       { commitment: 'confirmed' }
     )
     this.program = new anchor.Program(idl as any, provider)
+  }
+
+  static devnet(wallet: Keypair, rpcOverride?: string): TaskForest {
+    return new TaskForest({
+      ...ENVIRONMENT_PRESETS.devnet,
+      wallet,
+      ...(rpcOverride ? { rpc: rpcOverride } : {}),
+    })
+  }
+
+  static mainnet(wallet: Keypair, rpcOverride?: string): TaskForest {
+    return new TaskForest({
+      ...ENVIRONMENT_PRESETS['mainnet-beta'],
+      wallet,
+      ...(rpcOverride ? { rpc: rpcOverride } : {}),
+    })
   }
 
   // ─── Job PDA Derivation ─────────────────────────────────────

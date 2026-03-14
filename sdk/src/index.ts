@@ -1,4 +1,4 @@
-export { TaskForest } from './taskforest'
+export { TaskForest, ENVIRONMENT_PRESETS } from './taskforest'
 export {
   createReceipt,
   createToolCallReceipt,
