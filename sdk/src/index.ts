@@ -16,6 +16,12 @@ export {
   hashVerificationResult,
   validateSpec,
 } from './spec'
+export {
+  getTemplate,
+  listTemplates,
+  applyTemplate,
+} from './templates'
+export type { TemplateId, SpecTemplate } from './templates'
 export type {
   TaskForestSpec,
   AcceptanceCriterion,
