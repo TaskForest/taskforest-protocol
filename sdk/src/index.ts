@@ -8,6 +8,28 @@ export {
   deserializeDAG,
   getReceiptUriHash,
 } from './receipts'
+export {
+  SpecBuilder,
+  canonicalizeSpec,
+  hashSpec,
+  hashSpecHex,
+  hashVerificationResult,
+  validateSpec,
+} from './spec'
+export type {
+  TaskForestSpec,
+  AcceptanceCriterion,
+  CriterionType,
+  VerificationMode,
+  VerificationConfig,
+  Difficulty,
+  SpecMetadata,
+  SpecInput,
+  SpecOutput,
+  CriterionResult,
+  SpecVerificationResult,
+  SpecValidationError,
+} from './spec'
 export type {
   TaskForestConfig,
   PostTaskOptions,

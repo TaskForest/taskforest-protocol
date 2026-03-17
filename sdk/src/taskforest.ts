@@ -194,7 +194,7 @@ export class TaskForest {
     const rewardLamports = Math.floor(opts.reward * LAMPORTS_PER_SOL)
     const deadlineSec = this.parseDeadline(opts.deadline)
     const privacyLevel = PRIVACY_MAP[opts.privacy || 'public']
-    const proofSpecHash = this.hashData({ title: opts.title, ...opts.input })
+    const proofSpecHash = opts.specHash ?? this.hashData({ title: opts.title, ...opts.input })
     const ttdHash = opts.ttd ? this.hashData(opts.ttd) : Array.from({ length: 32 }, () => 0)
     const encryptionPubkey = privacyLevel > 0
       ? Array.from(this.encryptionKeypair.publicKey)
@@ -258,6 +258,7 @@ export class TaskForest {
           statusLabel: STATUS_LABELS[decoded.status] || 'unknown',
           proofHash: decoded.proofHash || [],
           privacyLevel: decoded.privacyLevel ?? 0,
+          specHash: decoded.proofSpecHash || [],
           ttdHash: decoded.ttdHash || [],
           claimerStake: decoded.claimerStake?.toNumber?.() ?? 0,
           bestBidStake: decoded.bestBidStake?.toNumber?.() ?? 0,
@@ -307,6 +308,7 @@ export class TaskForest {
         statusLabel: STATUS_LABELS[decoded.status] || 'unknown',
         proofHash: decoded.proofHash || [],
         privacyLevel: decoded.privacyLevel ?? 0,
+        specHash: decoded.proofSpecHash || [],
         ttdHash: decoded.ttdHash || [],
         claimerStake: decoded.claimerStake?.toNumber?.() ?? 0,
         bestBidStake: decoded.bestBidStake?.toNumber?.() ?? 0,

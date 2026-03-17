@@ -15,20 +15,16 @@ export interface TaskForestConfig {
 /** Privacy levels for task data */
 export type PrivacyLevel = 'public' | 'encrypted' | 'per'
 
-/** Options for posting a new task */
 export interface PostTaskOptions {
-  /** Task Type Definition ID (e.g. 'code-review-v1') */
+  /** @deprecated Use specHash instead */
   ttd?: string
-  /** Task title */
   title: string
-  /** Task description or structured input */
   input: Record<string, any>
-  /** Reward in SOL */
   reward: number
-  /** Deadline as duration string ('2h', '1d') or seconds */
   deadline: string | number
-  /** Privacy level */
   privacy?: PrivacyLevel
+  /** Pre-computed spec hash (from hashSpec). If provided, used as proof_spec_hash on-chain. */
+  specHash?: number[]
 }
 
 /** Options for bidding on a task */
@@ -67,6 +63,9 @@ export interface Job {
   statusLabel: string
   proofHash: number[]
   privacyLevel: number
+  /** SHA-256 hash of the TaskForest Spec (maps to on-chain proof_spec_hash) */
+  specHash: number[]
+  /** @deprecated Use specHash. TTD is replaced by spec-driven routing. Kept for backward compat. */
   ttdHash: number[]
   claimerStake: number
   bestBidStake: number
