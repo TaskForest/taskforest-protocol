@@ -230,6 +230,113 @@ pub mod dark_forest {
         Ok(())
     }
 
+    // ── PER Access Control ──────────────────────────────────────────
+
+    pub fn create_channel_permission(
+        ctx: Context<CreateChannelPermission>,
+        channel_id: u64,
+    ) -> Result<()> {
+        let channel = &ctx.accounts.channel;
+        let bump = ctx.bumps.channel;
+
+        let poster_member = PermissionMember {
+            address: channel.poster,
+            role: 1,
+        };
+        let agent_member = PermissionMember {
+            address: channel.agent,
+            role: 1,
+        };
+        let members = vec![poster_member, agent_member];
+
+        let mut data = Vec::with_capacity(12 + members.len() * 33);
+        data.extend_from_slice(&[0xc2, 0x5a, 0x7e, 0xf8, 0x1b, 0x3d, 0x4a, 0x9c]); // create_permission discriminator
+        data.push(1); // Option::Some for members
+        data.extend_from_slice(&(members.len() as u32).to_le_bytes());
+        for m in &members {
+            data.extend_from_slice(&m.address.to_bytes());
+            data.push(m.role);
+        }
+
+        let accounts = vec![
+            AccountMeta::new_readonly(channel.key(), false),
+            AccountMeta::new(ctx.accounts.permission.key(), false),
+            AccountMeta::new(ctx.accounts.payer.key(), true),
+            AccountMeta::new_readonly(ctx.accounts.system_program.key(), false),
+        ];
+
+        let ix = anchor_lang::solana_program::instruction::Instruction {
+            program_id: PERMISSION_PROGRAM_ID,
+            accounts,
+            data,
+        };
+
+        anchor_lang::solana_program::program::invoke_signed(
+            &ix,
+            &[
+                channel.to_account_info(),
+                ctx.accounts.permission.to_account_info(),
+                ctx.accounts.payer.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
+            &[&[CHANNEL_SEED, &channel_id.to_le_bytes(), &[bump]]],
+        )?;
+
+        msg!(
+            "Permission created for channel {} — poster + agent access",
+            channel_id
+        );
+        Ok(())
+    }
+
+    pub fn add_dispute_panel_access(
+        ctx: Context<UpdateChannelPermission>,
+        channel_id: u64,
+        panel_member: Pubkey,
+    ) -> Result<()> {
+        let channel = &ctx.accounts.channel;
+        let bump = ctx.bumps.channel;
+
+        let member = PermissionMember {
+            address: panel_member,
+            role: 2,
+        };
+
+        let mut data = Vec::with_capacity(48);
+        data.extend_from_slice(&[0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6, 0x07, 0x18]); // update_permission discriminator
+        data.push(1);
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.extend_from_slice(&member.address.to_bytes());
+        data.push(member.role);
+
+        let accounts = vec![
+            AccountMeta::new_readonly(channel.key(), false),
+            AccountMeta::new(ctx.accounts.permission.key(), false),
+        ];
+
+        let ix = anchor_lang::solana_program::instruction::Instruction {
+            program_id: PERMISSION_PROGRAM_ID,
+            accounts,
+            data,
+        };
+
+        anchor_lang::solana_program::program::invoke_signed(
+            &ix,
+            &[
+                channel.to_account_info(),
+                ctx.accounts.permission.to_account_info(),
+            ],
+            &[&[CHANNEL_SEED, &channel_id.to_le_bytes(), &[bump]]],
+        )?;
+
+        msg!(
+            "Dispute panel member {} added to channel {} permissions",
+            panel_member,
+            channel_id
+        );
+        Ok(())
+    }
+
     // ── PER Delegation ────────────────────────────────────────────
 
     pub fn delegate_channel(
@@ -423,6 +530,43 @@ pub struct CloseChannel<'info> {
     pub agent: UncheckedAccount<'info>,
 }
 
+#[derive(Accounts)]
+#[instruction(channel_id: u64)]
+pub struct CreateChannelPermission<'info> {
+    #[account(
+        seeds = [CHANNEL_SEED, &channel_id.to_le_bytes()],
+        bump
+    )]
+    pub channel: Account<'info, PaymentChannel>,
+    /// CHECK: Permission PDA derived by Permission Program
+    #[account(mut)]
+    pub permission: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    /// CHECK: Permission Program
+    #[account(address = PERMISSION_PROGRAM_ID)]
+    pub permission_program: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(channel_id: u64)]
+pub struct UpdateChannelPermission<'info> {
+    #[account(
+        seeds = [CHANNEL_SEED, &channel_id.to_le_bytes()],
+        bump
+    )]
+    pub channel: Account<'info, PaymentChannel>,
+    /// CHECK: Permission PDA derived by Permission Program
+    #[account(mut)]
+    pub permission: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    /// CHECK: Permission Program
+    #[account(address = PERMISSION_PROGRAM_ID)]
+    pub permission_program: UncheckedAccount<'info>,
+}
+
 #[delegate]
 #[derive(Accounts)]
 pub struct DelegateChannel<'info> {
@@ -449,6 +593,11 @@ pub struct SettleChannel<'info> {
 pub enum DelegateAccountType {
     Channel { channel_id: u64 },
     Voucher { channel_id: u64 },
+}
+
+pub struct PermissionMember {
+    pub address: Pubkey,
+    pub role: u8,
 }
 
 fn derive_delegate_seeds(account_type: &DelegateAccountType) -> Vec<Vec<u8>> {
