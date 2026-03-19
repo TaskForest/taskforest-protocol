@@ -29,18 +29,7 @@ pub struct PaymentChannel {
 }
 
 impl PaymentChannel {
-    pub const SIZE: usize = 8
-        + 8       // channel_id
-        + 32      // job_pubkey
-        + 32      // poster
-        + 32      // agent
-        + 8       // deposited
-        + 8       // claimed
-        + 8       // voucher_count
-        + 8       // last_voucher_amount
-        + 1       // status
-        + 8       // created_at
-        + 8; // expires_at
+    pub const SIZE: usize = 8 + 8 + 32 + 32 + 32 + 8 + 8 + 8 + 8 + 1 + 8 + 8;
 }
 
 #[account]

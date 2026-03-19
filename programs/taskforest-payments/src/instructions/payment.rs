@@ -4,8 +4,7 @@ use ephemeral_rollups_sdk::cpi::DelegateConfig;
 use ephemeral_rollups_sdk::ephem::{commit_accounts, commit_and_undelegate_accounts};
 
 use crate::constants::*;
-use crate::errors::TaskForestError;
-use crate::state::job::Job;
+use crate::errors::TaskforestPaymentsError;
 use crate::state::payment::*;
 
 pub fn handler_create_payment_channel(
@@ -56,11 +55,11 @@ pub fn handler_fund_payment_channel(ctx: Context<FundPaymentChannel>, amount: u6
     let channel = &mut ctx.accounts.channel;
     require!(
         channel.status == ChannelStatus::Open,
-        TaskForestError::ChannelNotOpen
+        TaskforestPaymentsError::ChannelNotOpen
     );
     require!(
         channel.poster == ctx.accounts.poster.key(),
-        TaskForestError::Unauthorized
+        TaskforestPaymentsError::Unauthorized
     );
 
     let ix = anchor_lang::solana_program::system_instruction::transfer(
@@ -80,7 +79,7 @@ pub fn handler_fund_payment_channel(ctx: Context<FundPaymentChannel>, amount: u6
     channel.deposited = channel
         .deposited
         .checked_add(amount)
-        .ok_or(TaskForestError::ChannelOverflow)?;
+        .ok_or(TaskforestPaymentsError::ChannelOverflow)?;
     msg!(
         "Channel {} funded: +{} lamports",
         channel.channel_id,
@@ -99,19 +98,19 @@ pub fn handler_send_voucher(
 
     require!(
         channel.status == ChannelStatus::Open,
-        TaskForestError::ChannelNotOpen
+        TaskforestPaymentsError::ChannelNotOpen
     );
     require!(
         channel.poster == ctx.accounts.poster.key(),
-        TaskForestError::Unauthorized
+        TaskforestPaymentsError::Unauthorized
     );
     require!(
         cumulative_amount > channel.last_voucher_amount,
-        TaskForestError::VoucherNotMonotonic
+        TaskforestPaymentsError::VoucherNotMonotonic
     );
     require!(
         cumulative_amount <= channel.deposited,
-        TaskForestError::InsufficientChannelDeposit
+        TaskforestPaymentsError::InsufficientChannelDeposit
     );
 
     channel.voucher_count += 1;
@@ -137,11 +136,11 @@ pub fn handler_claim_voucher(ctx: Context<ClaimVoucher>, _channel_id: u64) -> Re
     let channel = &mut ctx.accounts.channel;
     require!(
         channel.agent == ctx.accounts.agent.key(),
-        TaskForestError::Unauthorized
+        TaskforestPaymentsError::Unauthorized
     );
     require!(
         channel.last_voucher_amount > channel.claimed,
-        TaskForestError::NothingToClaim
+        TaskforestPaymentsError::NothingToClaim
     );
 
     let claimable = channel.last_voucher_amount - channel.claimed;
@@ -169,11 +168,11 @@ pub fn handler_close_payment_channel(
     let channel = &mut ctx.accounts.channel;
     require!(
         channel.poster == ctx.accounts.poster.key(),
-        TaskForestError::Unauthorized
+        TaskforestPaymentsError::Unauthorized
     );
     require!(
         channel.status == ChannelStatus::Open,
-        TaskForestError::ChannelNotOpen
+        TaskforestPaymentsError::ChannelNotOpen
     );
 
     let unclaimed = channel.last_voucher_amount - channel.claimed;
@@ -290,12 +289,10 @@ fn compute_settlement_hash(channel: &PaymentChannel) -> [u8; 32] {
     result
 }
 
-// ── Instruction Contexts ──────────────────────────────────────────
-
 #[derive(Accounts)]
 #[instruction(channel_id: u64)]
 pub struct CreatePaymentChannel<'info> {
-    pub job: Account<'info, Job>,
+    pub job: Account<'info, taskforest::state::job::Job>,
     #[account(
         init,
         payer = poster,
@@ -304,7 +301,7 @@ pub struct CreatePaymentChannel<'info> {
         bump
     )]
     pub channel: Account<'info, PaymentChannel>,
-    #[account(mut, constraint = poster.key() == job.poster @ TaskForestError::Unauthorized)]
+    #[account(mut, constraint = poster.key() == job.poster @ TaskforestPaymentsError::Unauthorized)]
     pub poster: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -352,7 +349,7 @@ pub struct ClosePaymentChannel<'info> {
     pub channel: Account<'info, PaymentChannel>,
     #[account(mut)]
     pub poster: Signer<'info>,
-    /// CHECK: Agent wallet for unclaimed funds
+    /// CHECK: Agent wallet validated by constraint against channel.agent.
     #[account(mut, constraint = agent.key() == channel.agent)]
     pub agent: UncheckedAccount<'info>,
 }
@@ -360,11 +357,11 @@ pub struct ClosePaymentChannel<'info> {
 #[delegate]
 #[derive(Accounts)]
 pub struct DelegatePaymentChannel<'info> {
-    /// CHECK: The PDA to delegate
+    /// CHECK: PDA delegated through `#[delegate]` macro validation.
     #[account(mut, del)]
     pub pda: AccountInfo<'info>,
     pub payer: Signer<'info>,
-    /// CHECK: ER validator
+    /// CHECK: Optional validator account consumed by ER delegation CPI.
     pub validator: Option<AccountInfo<'info>>,
 }
 

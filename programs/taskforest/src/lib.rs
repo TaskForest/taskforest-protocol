@@ -8,6 +8,16 @@ use ephemeral_rollups_sdk::anchor::ephemeral;
 use instructions::*;
 use light_sdk::instruction::{PackedAddressTreeInfo, ValidityProof};
 
+#[cfg(feature = "idl-build")]
+type ValidityProofArg = Vec<u8>;
+#[cfg(not(feature = "idl-build"))]
+type ValidityProofArg = ValidityProof;
+
+#[cfg(feature = "idl-build")]
+type PackedAddressTreeInfoArg = Vec<u8>;
+#[cfg(not(feature = "idl-build"))]
+type PackedAddressTreeInfoArg = PackedAddressTreeInfo;
+
 declare_id!("Fgiye795epSDkytp6a334Y2AwjqdGDecWV24yc2neZ4s");
 
 #[ephemeral]
@@ -181,11 +191,23 @@ pub mod taskforest {
 
     pub fn archive_settlement_compressed<'info>(
         ctx: Context<'_, '_, '_, 'info, CompressedArchiveAccounts<'info>>,
-        proof: ValidityProof,
-        address_tree_info: PackedAddressTreeInfo,
+        proof: ValidityProofArg,
+        address_tree_info: PackedAddressTreeInfoArg,
         output_state_tree_index: u8,
         reason_code: [u8; 32],
     ) -> Result<()> {
+        #[cfg(feature = "idl-build")]
+        {
+            let _ = (
+                ctx,
+                proof,
+                address_tree_info,
+                output_state_tree_index,
+                reason_code,
+            );
+            return Ok(());
+        }
+        #[cfg(not(feature = "idl-build"))]
         compressed::handler_archive_settlement_compressed(
             ctx,
             proof,
@@ -197,14 +219,29 @@ pub mod taskforest {
 
     pub fn init_agent_reputation<'info>(
         ctx: Context<'_, '_, '_, 'info, AgentReputationAccounts<'info>>,
-        proof: ValidityProof,
-        address_tree_info: PackedAddressTreeInfo,
+        proof: ValidityProofArg,
+        address_tree_info: PackedAddressTreeInfoArg,
         output_state_tree_index: u8,
         tasks_completed: u32,
         tasks_failed: u32,
         total_earned: u64,
         total_staked: u64,
     ) -> Result<()> {
+        #[cfg(feature = "idl-build")]
+        {
+            let _ = (
+                ctx,
+                proof,
+                address_tree_info,
+                output_state_tree_index,
+                tasks_completed,
+                tasks_failed,
+                total_earned,
+                total_staked,
+            );
+            return Ok(());
+        }
+        #[cfg(not(feature = "idl-build"))]
         compressed::handler_init_agent_reputation(
             ctx,
             proof,
@@ -219,8 +256,8 @@ pub mod taskforest {
 
     pub fn init_poster_reputation<'info>(
         ctx: Context<'_, '_, '_, 'info, PosterReputationAccounts<'info>>,
-        proof: ValidityProof,
-        address_tree_info: PackedAddressTreeInfo,
+        proof: ValidityProofArg,
+        address_tree_info: PackedAddressTreeInfoArg,
         output_state_tree_index: u8,
         tasks_posted: u32,
         tasks_settled_pass: u32,
@@ -230,6 +267,24 @@ pub mod taskforest {
         total_spent: u64,
         avg_settle_secs: u64,
     ) -> Result<()> {
+        #[cfg(feature = "idl-build")]
+        {
+            let _ = (
+                ctx,
+                proof,
+                address_tree_info,
+                output_state_tree_index,
+                tasks_posted,
+                tasks_settled_pass,
+                tasks_settled_fail,
+                disputes_initiated,
+                disputes_won,
+                total_spent,
+                avg_settle_secs,
+            );
+            return Ok(());
+        }
+        #[cfg(not(feature = "idl-build"))]
         compressed::handler_init_poster_reputation(
             ctx,
             proof,
@@ -247,13 +302,27 @@ pub mod taskforest {
 
     pub fn register_ttd_compressed<'info>(
         ctx: Context<'_, '_, '_, 'info, CompressedTtdAccounts<'info>>,
-        proof: ValidityProof,
-        address_tree_info: PackedAddressTreeInfo,
+        proof: ValidityProofArg,
+        address_tree_info: PackedAddressTreeInfoArg,
         output_state_tree_index: u8,
         ttd_hash: [u8; 32],
         ttd_uri_hash: [u8; 32],
         version: u16,
     ) -> Result<()> {
+        #[cfg(feature = "idl-build")]
+        {
+            let _ = (
+                ctx,
+                proof,
+                address_tree_info,
+                output_state_tree_index,
+                ttd_hash,
+                ttd_uri_hash,
+                version,
+            );
+            return Ok(());
+        }
+        #[cfg(not(feature = "idl-build"))]
         compressed::handler_register_ttd_compressed(
             ctx,
             proof,
@@ -267,70 +336,21 @@ pub mod taskforest {
 
     pub fn compress_finished_job<'info>(
         ctx: Context<'_, '_, '_, 'info, CompressedJobAccounts<'info>>,
-        proof: ValidityProof,
-        address_tree_info: PackedAddressTreeInfo,
+        proof: ValidityProofArg,
+        address_tree_info: PackedAddressTreeInfoArg,
         output_state_tree_index: u8,
     ) -> Result<()> {
+        #[cfg(feature = "idl-build")]
+        {
+            let _ = (ctx, proof, address_tree_info, output_state_tree_index);
+            return Ok(());
+        }
+        #[cfg(not(feature = "idl-build"))]
         compressed::handler_compress_finished_job(
             ctx,
             proof,
             address_tree_info,
             output_state_tree_index,
         )
-    }
-
-    // ── Dark Forest Payment Channels ──────────────────────────────
-
-    pub fn create_payment_channel(
-        ctx: Context<CreatePaymentChannel>,
-        channel_id: u64,
-        deposit_lamports: u64,
-        expires_in_seconds: i64,
-    ) -> Result<()> {
-        payment::handler_create_payment_channel(
-            ctx,
-            channel_id,
-            deposit_lamports,
-            expires_in_seconds,
-        )
-    }
-
-    pub fn fund_payment_channel(ctx: Context<FundPaymentChannel>, amount: u64) -> Result<()> {
-        payment::handler_fund_payment_channel(ctx, amount)
-    }
-
-    pub fn send_voucher(
-        ctx: Context<SendVoucher>,
-        channel_id: u64,
-        cumulative_amount: u64,
-    ) -> Result<()> {
-        payment::handler_send_voucher(ctx, channel_id, cumulative_amount)
-    }
-
-    pub fn claim_voucher(ctx: Context<ClaimVoucher>, channel_id: u64) -> Result<()> {
-        payment::handler_claim_voucher(ctx, channel_id)
-    }
-
-    pub fn close_payment_channel(ctx: Context<ClosePaymentChannel>, channel_id: u64) -> Result<()> {
-        payment::handler_close_payment_channel(ctx, channel_id)
-    }
-
-    pub fn delegate_payment_channel(ctx: Context<DelegatePaymentChannel>) -> Result<()> {
-        payment::handler_delegate_payment_channel(ctx)
-    }
-
-    pub fn settle_payment_channel(ctx: Context<SettlePaymentChannel>) -> Result<()> {
-        payment::handler_settle_payment_channel(ctx)
-    }
-
-    pub fn commit_payment_channel(ctx: Context<SettlePaymentChannel>) -> Result<()> {
-        payment::handler_commit_payment_channel(ctx)
-    }
-
-    pub fn record_channel_settlement(
-        ctx: Context<RecordChannelSettlement>,
-        channel_id: u64,
-    ) -> Result<()> {
-        payment::handler_record_channel_settlement(ctx, channel_id)
     }
 }

@@ -7,9 +7,11 @@ skip-lint = false
 
 [programs.devnet]
 taskforest = "Fgiye795epSDkytp6a334Y2AwjqdGDecWV24yc2neZ4s"
+taskforest_payments = "DFpay111111111111111111111111111111111111111"
 
 [programs.localnet]
 taskforest = "Fgiye795epSDkytp6a334Y2AwjqdGDecWV24yc2neZ4s"
+taskforest_payments = "DFpay111111111111111111111111111111111111111"
 
 [registry]
 url = "https://api.apr.dev"
@@ -20,4 +22,5 @@ wallet = "keys/taskforest.json"
 
 [scripts]
 test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/taskforest.ts"
+test-payments = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/taskforest-payments.ts"
 test-er = "npx ts-mocha -p ./tsconfig.json -t 120000 tests/er-devnet.ts"
