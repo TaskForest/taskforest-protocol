@@ -8,7 +8,7 @@ use ephemeral_rollups_sdk::anchor::ephemeral;
 use instructions::*;
 use light_sdk::instruction::{PackedAddressTreeInfo, ValidityProof};
 
-declare_id!("DFpay111111111111111111111111111111111111111");
+declare_id!("4hNP2tU5r5GgyASTrou84kWHbCwdyXVJJN4mve99rjgs");
 
 #[ephemeral]
 #[program]

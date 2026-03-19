@@ -7,11 +7,11 @@ skip-lint = false
 
 [programs.devnet]
 taskforest = "Fgiye795epSDkytp6a334Y2AwjqdGDecWV24yc2neZ4s"
-taskforest_payments = "DFpay111111111111111111111111111111111111111"
+taskforest_payments = "4hNP2tU5r5GgyASTrou84kWHbCwdyXVJJN4mve99rjgs"
 
 [programs.localnet]
 taskforest = "Fgiye795epSDkytp6a334Y2AwjqdGDecWV24yc2neZ4s"
-taskforest_payments = "DFpay111111111111111111111111111111111111111"
+taskforest_payments = "4hNP2tU5r5GgyASTrou84kWHbCwdyXVJJN4mve99rjgs"
 
 [registry]
 url = "https://api.apr.dev"

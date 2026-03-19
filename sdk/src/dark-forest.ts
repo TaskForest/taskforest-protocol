@@ -1,7 +1,7 @@
 import { PublicKey, Connection, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { Program, AnchorProvider, BN, Wallet, Idl } from '@coral-xyz/anchor'
 
-const PROGRAM_ID = new PublicKey('DFpay111111111111111111111111111111111111111')
+const PROGRAM_ID = new PublicKey('4hNP2tU5r5GgyASTrou84kWHbCwdyXVJJN4mve99rjgs')
 const ESCROW_SEED = Buffer.from('escrow')
 const SETTLEMENT_SEED = Buffer.from('settlement')
 
