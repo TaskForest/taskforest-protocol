@@ -20,7 +20,12 @@ pub mod taskforest_payments {
         deposit_lamports: u64,
         expires_in_seconds: i64,
     ) -> Result<()> {
-        payment::handler_create_payment_channel(ctx, channel_id, deposit_lamports, expires_in_seconds)
+        payment::handler_create_payment_channel(
+            ctx,
+            channel_id,
+            deposit_lamports,
+            expires_in_seconds,
+        )
     }
 
     pub fn fund_payment_channel(ctx: Context<FundPaymentChannel>, amount: u64) -> Result<()> {
@@ -60,5 +65,33 @@ pub mod taskforest_payments {
         channel_id: u64,
     ) -> Result<()> {
         payment::handler_record_channel_settlement(ctx, channel_id)
+    }
+
+    pub fn create_channel_permission(
+        ctx: Context<CreateChannelPermission>,
+        channel_id: u64,
+    ) -> Result<()> {
+        payment::handler_create_channel_permission(ctx, channel_id)
+    }
+
+    pub fn add_dispute_panel_access(
+        ctx: Context<UpdateChannelPermission>,
+        channel_id: u64,
+        panel_member: Pubkey,
+    ) -> Result<()> {
+        payment::handler_add_dispute_panel_access(ctx, channel_id, panel_member)
+    }
+
+    pub fn settle_and_record(ctx: Context<SettleAndRecord>, channel_id: u64) -> Result<()> {
+        payment::handler_settle_and_record(ctx, channel_id)
+    }
+
+    pub fn verify_tee_attestation(
+        ctx: Context<VerifyTeeAttestation>,
+        channel_id: u64,
+        attestation_report: Vec<u8>,
+        tee_pubkey: [u8; 32],
+    ) -> Result<()> {
+        payment::handler_verify_tee_attestation(ctx, channel_id, attestation_report, tee_pubkey)
     }
 }

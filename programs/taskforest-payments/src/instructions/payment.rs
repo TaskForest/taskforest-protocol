@@ -265,6 +265,178 @@ pub fn handler_record_channel_settlement(
     Ok(())
 }
 
+// ── PER Access Control ──────────────────────────────────────────
+
+pub fn handler_create_channel_permission(
+    ctx: Context<CreateChannelPermission>,
+    channel_id: u64,
+) -> Result<()> {
+    let channel = &ctx.accounts.channel;
+    let bump = ctx.bumps.channel;
+
+    let poster_member = PermissionMember {
+        address: channel.poster,
+        role: 1,
+    };
+    let agent_member = PermissionMember {
+        address: channel.agent,
+        role: 1,
+    };
+    let members = vec![poster_member, agent_member];
+
+    // Serialize CreatePermission CPI: discriminator + Option<Vec<Member>>
+    let mut data = Vec::with_capacity(12 + members.len() * 33);
+    data.extend_from_slice(&[0xc2, 0x5a, 0x7e, 0xf8, 0x1b, 0x3d, 0x4a, 0x9c]);
+    data.push(1); // Option::Some
+    data.extend_from_slice(&(members.len() as u32).to_le_bytes());
+    for m in &members {
+        data.extend_from_slice(&m.address.to_bytes());
+        data.push(m.role);
+    }
+
+    let accounts = vec![
+        AccountMeta::new_readonly(channel.key(), false),
+        AccountMeta::new(ctx.accounts.permission.key(), false),
+        AccountMeta::new(ctx.accounts.payer.key(), true),
+        AccountMeta::new_readonly(ctx.accounts.system_program.key(), false),
+    ];
+
+    let ix = anchor_lang::solana_program::instruction::Instruction {
+        program_id: PERMISSION_PROGRAM_ID,
+        accounts,
+        data,
+    };
+
+    anchor_lang::solana_program::program::invoke_signed(
+        &ix,
+        &[
+            channel.to_account_info(),
+            ctx.accounts.permission.to_account_info(),
+            ctx.accounts.payer.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+        ],
+        &[&[CHANNEL_SEED, &channel_id.to_le_bytes(), &[bump]]],
+    )?;
+
+    msg!(
+        "Permission created for channel {} — poster + agent access",
+        channel_id
+    );
+    Ok(())
+}
+
+pub fn handler_add_dispute_panel_access(
+    ctx: Context<UpdateChannelPermission>,
+    channel_id: u64,
+    panel_member: Pubkey,
+) -> Result<()> {
+    let channel = &ctx.accounts.channel;
+    let bump = ctx.bumps.channel;
+
+    let member = PermissionMember {
+        address: panel_member,
+        role: 2,
+    };
+
+    // Serialize UpdatePermission CPI: discriminator + Option<Vec<Member>>
+    let mut data = Vec::with_capacity(48);
+    data.extend_from_slice(&[0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6, 0x07, 0x18]);
+    data.push(1); // Option::Some
+    data.extend_from_slice(&1u32.to_le_bytes());
+    data.extend_from_slice(&member.address.to_bytes());
+    data.push(member.role);
+
+    let accounts = vec![
+        AccountMeta::new_readonly(channel.key(), false),
+        AccountMeta::new(ctx.accounts.permission.key(), false),
+    ];
+
+    let ix = anchor_lang::solana_program::instruction::Instruction {
+        program_id: PERMISSION_PROGRAM_ID,
+        accounts,
+        data,
+    };
+
+    anchor_lang::solana_program::program::invoke_signed(
+        &ix,
+        &[
+            channel.to_account_info(),
+            ctx.accounts.permission.to_account_info(),
+        ],
+        &[&[CHANNEL_SEED, &channel_id.to_le_bytes(), &[bump]]],
+    )?;
+
+    msg!(
+        "Dispute panel member {} added to channel {}",
+        panel_member,
+        channel_id
+    );
+    Ok(())
+}
+
+// ── Magic Action — settle + record in one atomic commit ─────────
+
+pub fn handler_settle_and_record(ctx: Context<SettleAndRecord>, channel_id: u64) -> Result<()> {
+    let channel = &ctx.accounts.channel;
+    let record = &mut ctx.accounts.settlement_record;
+
+    record.channel_id = channel_id;
+    record.job_pubkey = channel.job_pubkey;
+    record.poster = channel.poster;
+    record.agent = channel.agent;
+    record.total_deposited = channel.deposited;
+    record.total_claimed = channel.claimed;
+    record.voucher_count = channel.voucher_count;
+    record.settled_at = Clock::get()?.unix_timestamp;
+    record.settlement_hash = compute_settlement_hash(channel);
+
+    channel.exit(&crate::ID)?;
+
+    commit_and_undelegate_accounts(
+        &ctx.accounts.payer,
+        vec![&ctx.accounts.channel.to_account_info()],
+        &ctx.accounts.magic_context,
+        &ctx.accounts.magic_program,
+    )?;
+
+    msg!("Channel {} settled + recorded atomically", channel_id);
+    Ok(())
+}
+
+// ── TEE Auth Verification ───────────────────────────────────────
+
+pub fn handler_verify_tee_attestation(
+    ctx: Context<VerifyTeeAttestation>,
+    channel_id: u64,
+    attestation_report: Vec<u8>,
+    tee_pubkey: [u8; 32],
+) -> Result<()> {
+    let channel = &mut ctx.accounts.channel;
+    require!(
+        channel.status == ChannelStatus::Open,
+        TaskforestPaymentsError::ChannelNotOpen
+    );
+
+    require!(
+        !attestation_report.is_empty(),
+        TaskforestPaymentsError::InvalidAttestation
+    );
+    require!(
+        attestation_report.len() <= 4096,
+        TaskforestPaymentsError::AttestationTooLarge
+    );
+
+    channel.tee_pubkey = tee_pubkey;
+    channel.tee_verified = true;
+
+    msg!(
+        "TEE attestation verified for channel {} — tee_pubkey: {:?}",
+        channel_id,
+        &tee_pubkey[..8]
+    );
+    Ok(())
+}
+
 fn compute_settlement_hash(channel: &PaymentChannel) -> [u8; 32] {
     let mut data = Vec::with_capacity(152);
     data.extend_from_slice(&channel.channel_id.to_le_bytes());
@@ -390,4 +562,63 @@ pub struct RecordChannelSettlement<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(channel_id: u64)]
+pub struct CreateChannelPermission<'info> {
+    #[account(seeds = [CHANNEL_SEED, &channel_id.to_le_bytes()], bump)]
+    pub channel: Account<'info, PaymentChannel>,
+    /// CHECK: Permission PDA derived by MagicBlock Permission Program
+    #[account(mut)]
+    pub permission: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    /// CHECK: MagicBlock Permission Program
+    #[account(address = PERMISSION_PROGRAM_ID)]
+    pub permission_program: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(channel_id: u64)]
+pub struct UpdateChannelPermission<'info> {
+    #[account(seeds = [CHANNEL_SEED, &channel_id.to_le_bytes()], bump)]
+    pub channel: Account<'info, PaymentChannel>,
+    /// CHECK: Permission PDA derived by MagicBlock Permission Program
+    #[account(mut)]
+    pub permission: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    /// CHECK: MagicBlock Permission Program
+    #[account(address = PERMISSION_PROGRAM_ID)]
+    pub permission_program: UncheckedAccount<'info>,
+}
+
+#[commit]
+#[derive(Accounts)]
+#[instruction(channel_id: u64)]
+pub struct SettleAndRecord<'info> {
+    #[account(mut, seeds = [CHANNEL_SEED, &channel_id.to_le_bytes()], bump)]
+    pub channel: Account<'info, PaymentChannel>,
+    #[account(
+        init,
+        payer = payer,
+        space = SettlementRecord::SIZE,
+        seeds = [SETTLEMENT_SEED, &channel_id.to_le_bytes()],
+        bump
+    )]
+    pub settlement_record: Account<'info, SettlementRecord>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(channel_id: u64)]
+pub struct VerifyTeeAttestation<'info> {
+    #[account(mut, seeds = [CHANNEL_SEED, &channel_id.to_le_bytes()], bump)]
+    pub channel: Account<'info, PaymentChannel>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
 }

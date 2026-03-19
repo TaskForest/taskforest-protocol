@@ -14,4 +14,8 @@ pub enum TaskforestPaymentsError {
     NothingToClaim,
     #[msg("Payment channel arithmetic overflow")]
     ChannelOverflow,
+    #[msg("Invalid TEE attestation report")]
+    InvalidAttestation,
+    #[msg("TEE attestation report exceeds maximum size")]
+    AttestationTooLarge,
 }

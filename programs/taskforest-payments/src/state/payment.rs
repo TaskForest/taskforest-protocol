@@ -26,10 +26,12 @@ pub struct PaymentChannel {
     pub status: ChannelStatus,
     pub created_at: i64,
     pub expires_at: i64,
+    pub tee_pubkey: [u8; 32],
+    pub tee_verified: bool,
 }
 
 impl PaymentChannel {
-    pub const SIZE: usize = 8 + 8 + 32 + 32 + 32 + 8 + 8 + 8 + 8 + 1 + 8 + 8;
+    pub const SIZE: usize = 8 + 8 + 32 + 32 + 32 + 8 + 8 + 8 + 8 + 1 + 8 + 8 + 32 + 1;
 }
 
 #[account]
