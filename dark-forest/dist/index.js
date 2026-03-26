@@ -23,7 +23,7 @@ exports.ESCROW_SEED = Buffer.from('escrow');
 exports.SETTLEMENT_SEED = Buffer.from('settlement');
 exports.TEE_VALIDATORS = {
     mainnet: new web3_js_1.PublicKey('MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo'),
-    devnet: new web3_js_1.PublicKey('FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA'),
+    devnet: new web3_js_1.PublicKey('HNDKj4XtVBoudGBBbxwsHFKbfNoFCrjL6xrvf7Aq51mX'),
 };
 exports.PER_ENDPOINTS = {
     mainnet: 'https://mainnet-tee.magicblock.app',
@@ -112,12 +112,16 @@ class DarkForestPayments {
             .rpc();
     }
     async delegateToPer(escrowId, validator) {
+        const DELEGATION_PROGRAM_ID = new web3_js_1.PublicKey('DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh');
         const [escrowPda] = deriveEscrowPda(escrowId);
         const method = this.program.methods
             .delegateToPer(new anchor_1.BN(escrowId))
-            .accounts({
+            .accountsPartial({
             pda: escrowPda,
             payer: this.provider.wallet.publicKey,
+            ownerProgram: exports.DARK_FOREST_PROGRAM_ID,
+            delegationProgram: DELEGATION_PROGRAM_ID,
+            systemProgram: web3_js_1.SystemProgram.programId,
         });
         if (validator) {
             return method

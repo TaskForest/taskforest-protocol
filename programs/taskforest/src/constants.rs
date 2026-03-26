@@ -6,7 +6,7 @@ pub const LIGHT_CPI_SIGNER: CpiSigner =
     derive_light_cpi_signer!("Fgiye795epSDkytp6a334Y2AwjqdGDecWV24yc2neZ4s");
 
 // --- TEE Validators (PER bidding) ---
-pub const DEVNET_TEE_VALIDATOR: Pubkey = pubkey!("FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA");
+pub const DEVNET_TEE_VALIDATOR: Pubkey = pubkey!("HNDKj4XtVBoudGBBbxwsHFKbfNoFCrjL6xrvf7Aq51mX");
 pub const MAINNET_TEE_VALIDATOR: Pubkey = pubkey!("MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo");
 pub const LOCALNET_TEE_VALIDATOR: Pubkey = pubkey!("7XRXX7C2vtLJE6A8tTtcR4QEH9FtsC4K3CXL8jCTAK7n");
 

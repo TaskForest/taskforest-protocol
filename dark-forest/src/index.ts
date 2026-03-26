@@ -17,7 +17,7 @@ export const SETTLEMENT_SEED = Buffer.from('settlement')
 
 export const TEE_VALIDATORS = {
   mainnet: new PublicKey('MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo'),
-  devnet: new PublicKey('FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA'),
+  devnet: new PublicKey('HNDKj4XtVBoudGBBbxwsHFKbfNoFCrjL6xrvf7Aq51mX'),
 } as const
 
 export const PER_ENDPOINTS = {
@@ -201,12 +201,16 @@ export class DarkForestPayments {
     escrowId: number,
     validator?: PublicKey,
   ): Promise<string> {
+    const DELEGATION_PROGRAM_ID = new PublicKey('DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh')
     const [escrowPda] = deriveEscrowPda(escrowId)
     const method = this.program.methods
       .delegateToPer(new BN(escrowId))
-      .accounts({
+      .accountsPartial({
         pda: escrowPda,
         payer: this.provider.wallet.publicKey,
+        ownerProgram: DARK_FOREST_PROGRAM_ID,
+        delegationProgram: DELEGATION_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
 
     if (validator) {
