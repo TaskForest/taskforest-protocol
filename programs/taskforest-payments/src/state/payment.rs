@@ -25,6 +25,8 @@ pub struct EscrowWrapper {
     pub tee_pubkey: [u8; 32],
     pub tee_verified: bool,
     pub mpp_session_id: [u8; 32],
+    pub total_paid: u64,
+    pub request_count: u32,
     pub created_at: i64,
 }
 
@@ -40,6 +42,8 @@ impl EscrowWrapper {
         + 32      // tee_pubkey
         + 1       // tee_verified
         + 32      // mpp_session_id
+        + 8       // total_paid
+        + 4       // request_count
         + 8; // created_at
 }
 

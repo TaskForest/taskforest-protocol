@@ -184,6 +184,8 @@ pub fn handler_create_escrow_wrapper(
     escrow.tee_pubkey = [0u8; 32];
     escrow.tee_verified = false;
     escrow.mpp_session_id = mpp_session_id;
+    escrow.total_paid = 0;
+    escrow.request_count = 0;
     escrow.created_at = clock.unix_timestamp;
 
     let ix = anchor_lang::solana_program::system_instruction::transfer(
@@ -219,6 +221,58 @@ pub fn handler_delegate_to_per(ctx: Context<DelegateToPer>, escrow_id: u64) -> R
         },
     )?;
     msg!("Escrow delegated to PER TEE validator");
+    Ok(())
+}
+
+/// Record an on-chain metered payment against an escrow.
+/// Called by the agent or TEE validator during a private session.
+/// Enforces budget: total_paid + amount must not exceed deposited.
+pub fn handler_record_payment(
+    ctx: Context<RecordPayment>,
+    escrow_id: u64,
+    amount: u64,
+) -> Result<()> {
+    let escrow = &mut ctx.accounts.escrow;
+    let caller = ctx.accounts.caller.key();
+
+    // Input validation
+    require!(amount > 0, TaskforestPaymentsError::BudgetExceeded);
+    require!(
+        escrow.escrow_id == escrow_id,
+        TaskforestPaymentsError::EscrowNotActive
+    );
+
+    // Escrow must be delegated (TEE-verified)
+    require!(
+        escrow.status == EscrowStatus::Delegated,
+        TaskforestPaymentsError::EscrowNotDelegated
+    );
+
+    // Only agent or validator can record payments
+    require!(
+        caller == escrow.agent || caller == escrow.validator,
+        TaskforestPaymentsError::CallerNotAuthorized
+    );
+
+    // Budget enforcement
+    let new_total = escrow.total_paid.checked_add(amount)
+        .ok_or(TaskforestPaymentsError::BudgetExceeded)?;
+    require!(
+        new_total <= escrow.deposited,
+        TaskforestPaymentsError::BudgetExceeded
+    );
+
+    escrow.total_paid = new_total;
+    escrow.request_count = escrow.request_count.saturating_add(1);
+
+    msg!(
+        "Payment recorded: escrow={} amount={} total={}/{} requests={}",
+        escrow_id,
+        amount,
+        escrow.total_paid,
+        escrow.deposited,
+        escrow.request_count
+    );
     Ok(())
 }
 
@@ -297,14 +351,21 @@ pub fn handler_verify_tee_attestation(
 pub fn handler_record_settlement(
     ctx: Context<RecordSettlement>,
     escrow_id: u64,
-    total_paid: u64,
+    _total_paid: u64,
 ) -> Result<()> {
     let escrow = &mut ctx.accounts.escrow;
     let record = &mut ctx.accounts.settlement_record;
     let clock = Clock::get()?;
+
+    // Use on-chain metered total — never trust client-supplied value
+    let total_paid = escrow.total_paid;
     require!(
         total_paid <= escrow.deposited,
         TaskforestPaymentsError::SettlementExceedsDeposit
+    );
+    require!(
+        escrow.escrow_id == escrow_id,
+        TaskforestPaymentsError::EscrowNotActive
     );
 
     record.escrow_id = escrow_id;
@@ -347,10 +408,11 @@ pub fn handler_record_settlement(
     }
 
     msg!(
-        "Settlement recorded for escrow {} — paid: {}, refunded: {}",
+        "Settlement recorded for escrow {} — metered_paid: {}, refunded: {}, requests: {}",
         escrow_id,
         total_paid,
-        refundable
+        refundable,
+        escrow.request_count
     );
     Ok(())
 }
@@ -440,4 +502,12 @@ pub struct RecordSettlement<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(escrow_id: u64)]
+pub struct RecordPayment<'info> {
+    #[account(mut, seeds = [ESCROW_SEED, &escrow_id.to_le_bytes()], bump)]
+    pub escrow: Account<'info, EscrowWrapper>,
+    pub caller: Signer<'info>,
 }

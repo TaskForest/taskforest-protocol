@@ -37,6 +37,10 @@ pub mod taskforest_payments {
         payment::handler_verify_tee_attestation(ctx, escrow_id, attestation_report, tee_pubkey)
     }
 
+    pub fn record_payment(ctx: Context<RecordPayment>, escrow_id: u64, amount: u64) -> Result<()> {
+        payment::handler_record_payment(ctx, escrow_id, amount)
+    }
+
     pub fn record_settlement(
         ctx: Context<RecordSettlement>,
         escrow_id: u64,

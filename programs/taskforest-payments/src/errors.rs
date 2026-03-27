@@ -22,4 +22,10 @@ pub enum TaskforestPaymentsError {
     SettlementExceedsDeposit,
     #[msg("ZK compression failed")]
     CompressionFailed,
+    #[msg("Payment would exceed escrow budget")]
+    BudgetExceeded,
+    #[msg("Escrow must be in Delegated status for metered payments")]
+    EscrowNotDelegated,
+    #[msg("Caller is not authorized for this escrow")]
+    CallerNotAuthorized,
 }
