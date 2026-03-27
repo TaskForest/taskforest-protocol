@@ -184,11 +184,22 @@ class DarkForestPayments {
         const session = await this.sessionStore.get(escrowId);
         if (!session || !session.isActive)
             throw new Error('No active session for this escrow');
+        const [escrowPda] = deriveEscrowPda(escrowId);
+        // On-chain enforced metering — budget check + caller auth happens on-chain
+        const tx = await this.program.methods
+            .recordPayment(new anchor_1.BN(escrowId), new anchor_1.BN(amountLamports))
+            .accounts({
+            escrow: escrowPda,
+            caller: this.provider.wallet.publicKey,
+        })
+            .rpc();
+        // Update local session store for fast reads
         await this.sessionStore.set({
             ...session,
             totalPaid: session.totalPaid + amountLamports,
             requestCount: session.requestCount + 1,
         });
+        return tx;
     }
     async closeSession(escrowId) {
         const session = await this.sessionStore.get(escrowId);

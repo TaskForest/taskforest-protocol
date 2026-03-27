@@ -93,7 +93,7 @@ export declare class DarkForestPayments {
     verifyTeeAttestation(escrowId: number, attestationReport: Buffer, teePubkey: number[], signatureInstruction?: TransactionInstruction): Promise<string>;
     recordSettlement(escrowId: number, totalPaidSol: number): Promise<string>;
     startPrivateSession(escrowId: number, jobPubkey: PublicKey, config: MppSessionConfig): Promise<MppSessionState>;
-    recordPayment(escrowId: number, amountLamports: number): Promise<void>;
+    recordPayment(escrowId: number, amountLamports: number): Promise<string>;
     closeSession(escrowId: number): Promise<string>;
     getActiveSession(escrowId: number): Promise<MppSessionState | undefined>;
     getEscrow(escrowId: number): Promise<EscrowState | null>;
