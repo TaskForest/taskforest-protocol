@@ -199,6 +199,13 @@ pub mod taskforest {
         proof::handler_submit_encrypted_proof(ctx, proof_hash, encrypted_output_hash)
     }
 
+    /// Archive a settlement into a compressed (ZK) account via Light Protocol.
+    ///
+    /// NOTE: The `#[cfg(feature = "idl-build")]` branch returns `Ok(())` because
+    /// Light SDK's `ValidityProof` and `PackedAddressTreeInfo` types are not
+    /// serializable by the Anchor IDL generator. At runtime (without `idl-build`),
+    /// the real compressed-account logic executes. This is a standard pattern
+    /// when using Light SDK with Anchor.
     pub fn archive_settlement_compressed<'info>(
         ctx: Context<'_, '_, '_, 'info, CompressedArchiveAccounts<'info>>,
         proof: ValidityProofArg,

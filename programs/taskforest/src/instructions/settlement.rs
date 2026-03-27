@@ -59,6 +59,15 @@ pub fn handler_settle_job(
         job.poster == ctx.accounts.settler.key(),
         TaskForestError::Unauthorized
     );
+    // Validate payout accounts match on-chain job state
+    require!(
+        ctx.accounts.claimer_account.key() == job.claimer,
+        TaskForestError::InvalidClaimer
+    );
+    require!(
+        ctx.accounts.poster_account.key() == job.poster,
+        TaskForestError::Unauthorized
+    );
 
     let job_info = job.to_account_info();
 

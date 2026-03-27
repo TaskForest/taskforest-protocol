@@ -170,7 +170,11 @@ pub fn handler_tally_panel(ctx: Context<TallyPanel>) -> Result<()> {
     let mut agent_wins_count: u8 = 0;
     let mut challenger_wins_count: u8 = 0;
 
+    let mut seen = std::collections::BTreeSet::new();
     for account_info in ctx.remaining_accounts.iter() {
+        if !seen.insert(account_info.key()) {
+            continue; // skip duplicate vote PDAs
+        }
         let data = account_info.try_borrow_data()?;
         let mut data_slice: &[u8] = &data;
         if let Ok(vote) = VerifierVote::try_deserialize(&mut data_slice) {

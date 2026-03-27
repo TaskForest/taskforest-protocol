@@ -95,7 +95,7 @@ pub fn handler_submit_encrypted_proof(
     let clock = Clock::get()?;
     require!(
         clock.unix_timestamp <= job.deadline,
-        TaskForestError::DeadlineNotPassed
+        TaskForestError::DeadlinePassed
     );
 
     job.proof_hash = proof_hash;
